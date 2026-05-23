@@ -62,8 +62,16 @@ export interface ServerToClientEvents {
   chatMessage: (msg: ChatMessage) => void;
 }
 
+export interface JoinAck {
+  ok: boolean;
+  error?: 'room_not_found';
+}
+
 export interface ClientToServerEvents {
-  join: (payload: { name: string; character: CharacterId }) => void;
+  join: (
+    payload: { roomId: string; name: string; character: CharacterId },
+    ack?: (res: JoinAck) => void,
+  ) => void;
   move: (payload: { x: number; y: number; direction: Direction }) => void;
   chat: (payload: { text: string }) => void;
   updateCharacter: (payload: { character: CharacterId }) => void;

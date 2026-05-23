@@ -1,24 +1,52 @@
 import { useState, type FormEvent } from 'react';
-import { COLLECTIONS, DEFAULT_CHARACTER } from '../characters';
-import Sprite from './Sprite';
+import { useNavigate } from 'react-router-dom';
+import { API_BASE } from '../api';
 import ThemePicker from './ThemePicker';
-import type { CharacterId, ThemeId } from '../types';
+import type { ThemeId } from '../types';
 
 interface LandingProps {
-  onJoin: (name: string, character: CharacterId) => void;
   theme: ThemeId;
   onThemeChange: (id: ThemeId) => void;
 }
 
-export default function Landing({ onJoin, theme, onThemeChange }: LandingProps) {
-  const [name, setName] = useState('');
-  const [character, setCharacter] = useState<CharacterId>(DEFAULT_CHARACTER);
+function extractSlug(input: string): string | null {
+  const trimmed = input.trim();
+  if (!trimmed) return null;
+  const m = trimmed.match(/\/r\/([a-z0-9-]+)/i);
+  if (m) return m[1];
+  if (/^[a-z0-9-]+$/i.test(trimmed)) return trimmed;
+  return null;
+}
 
-  function submit(e: FormEvent) {
+export default function Landing({ theme, onThemeChange }: LandingProps) {
+  const navigate = useNavigate();
+  const [busy, setBusy] = useState(false);
+  const [linkInput, setLinkInput] = useState('');
+  const [linkError, setLinkError] = useState<string | null>(null);
+  const [createError, setCreateError] = useState<string | null>(null);
+
+  async function createRoom() {
+    setBusy(true);
+    setCreateError(null);
+    try {
+      const res = await fetch(`${API_BASE}/api/rooms`, { method: 'POST' });
+      if (!res.ok) throw new Error('failed');
+      const { id } = (await res.json()) as { id: string };
+      navigate(`/r/${id}`);
+    } catch {
+      setCreateError("couldn't create a room — is the server running?");
+      setBusy(false);
+    }
+  }
+
+  function joinByLink(e: FormEvent) {
     e.preventDefault();
-    const trimmed = name.trim();
-    if (!trimmed) return;
-    onJoin(trimmed, character);
+    const slug = extractSlug(linkInput);
+    if (!slug) {
+      setLinkError("paste a room link or code");
+      return;
+    }
+    navigate(`/r/${slug}`);
   }
 
   return (
@@ -26,49 +54,39 @@ export default function Landing({ onJoin, theme, onThemeChange }: LandingProps) 
       <div className="landing-card">
         <h1 className="title">cya</h1>
         <p className="subtitle">a tamagotchi-style virtual hangout</p>
-        <form onSubmit={submit}>
-          <label className="field">
-            <span>your name</span>
-            <input
-              autoFocus
-              maxLength={20}
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="who are you?"
-            />
-          </label>
-          <div className="field">
-            <span>pick a buddy</span>
-            {COLLECTIONS.map((coll) => (
-              <div key={coll.id} className="collection-section">
-                <h3 className="collection-name">{coll.name}</h3>
-                <div className="char-grid">
-                  {coll.characters.map((c) => (
-                    <button
-                      type="button"
-                      key={c.id}
-                      className={`char-option ${character === c.id ? 'selected' : ''}`}
-                      onClick={() => setCharacter(c.id)}
-                      aria-pressed={character === c.id}
-                    >
-                      <div className="char-sprite-slot">
-                        <Sprite character={c.id} />
-                      </div>
-                      <span className="char-name">{c.name}</span>
-                    </button>
-                  ))}
-                </div>
-              </div>
-            ))}
-          </div>
-          <div className="field">
-            <span>theme</span>
-            <ThemePicker theme={theme} onChange={onThemeChange} />
-          </div>
-          <button type="submit" className="btn-primary" disabled={!name.trim()}>
-            enter room
+
+        <div className="field">
+          <button
+            type="button"
+            className="btn-primary"
+            onClick={createRoom}
+            disabled={busy}
+          >
+            {busy ? 'creating…' : 'create a room'}
           </button>
+          {createError && <small className="field-error">{createError}</small>}
+        </div>
+
+        <form onSubmit={joinByLink} className="field">
+          <span>or join with a link</span>
+          <input
+            value={linkInput}
+            onChange={(e) => {
+              setLinkInput(e.target.value);
+              setLinkError(null);
+            }}
+            placeholder="paste room link or code"
+          />
+          <button type="submit" className="btn-secondary" disabled={!linkInput.trim()}>
+            join
+          </button>
+          {linkError && <small className="field-error">{linkError}</small>}
         </form>
+
+        <div className="field">
+          <span>theme</span>
+          <ThemePicker theme={theme} onChange={onThemeChange} />
+        </div>
       </div>
     </div>
   );

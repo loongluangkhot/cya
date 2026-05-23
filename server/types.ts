@@ -18,11 +18,22 @@ export interface ChatMessage {
   timestamp: number;
 }
 
+export interface Room {
+  id: string;
+  users: Map<string, User>;
+  messages: ChatMessage[];
+}
+
 export interface StatePayload {
   you: User;
   users: User[];
   messages: ChatMessage[];
   room: { width: number; height: number };
+}
+
+export interface JoinAck {
+  ok: boolean;
+  error?: 'room_not_found';
 }
 
 export interface ServerToClientEvents {
@@ -35,9 +46,16 @@ export interface ServerToClientEvents {
 }
 
 export interface ClientToServerEvents {
-  join: (payload: { name?: string; character?: string }) => void;
+  join: (
+    payload: { roomId: string; name?: string; character?: string },
+    ack?: (res: JoinAck) => void,
+  ) => void;
   move: (payload: { x?: number; y?: number; direction?: string }) => void;
   chat: (payload: { text?: string }) => void;
   updateCharacter: (payload: { character?: string }) => void;
   updateName: (payload: { name?: string }) => void;
+}
+
+export interface SocketData {
+  roomId?: string;
 }

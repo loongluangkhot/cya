@@ -67,6 +67,7 @@ function DPad({ press }: DPadProps) {
 }
 
 interface RoomProps {
+  roomId: string;
   theme: ThemeId;
   onThemeChange: (id: ThemeId) => void;
   character: CharacterId;
@@ -84,6 +85,7 @@ interface PositionRef {
 }
 
 export default function Room({
+  roomId,
   theme,
   onThemeChange,
   character,
@@ -98,6 +100,7 @@ export default function Room({
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [bubbles, setBubbles] = useState<Record<string, BubbleState>>({});
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [copied, setCopied] = useState(false);
 
   const keysRef = useRef<Partial<Record<string, boolean>>>({});
   const posRef = useRef<PositionRef>({
@@ -328,6 +331,16 @@ export default function Room({
     socket.emit('chat', { text });
   }
 
+  async function copyLink() {
+    try {
+      await navigator.clipboard.writeText(window.location.href);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1500);
+    } catch {
+      // ignore — clipboard may be unavailable
+    }
+  }
+
   function pressKey(key: KeyName, isDown: boolean) {
     keysRef.current[key] = isDown;
   }
@@ -338,11 +351,22 @@ export default function Room({
     <div className="app-root">
       <header className="app-header">
         <span className="app-title">cya</span>
+        <span className="app-room-id" title="room code">
+          /r/{roomId}
+        </span>
         <div className="app-header-right">
           <span className="app-count">
             <span className="live-dot" />
             {users.length} online
           </span>
+          <button
+            type="button"
+            className="settings-btn"
+            onClick={copyLink}
+            aria-label="copy room link"
+          >
+            {copied ? 'copied!' : 'copy link'}
+          </button>
           <button
             type="button"
             className="settings-btn"
