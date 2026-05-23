@@ -4,8 +4,13 @@ A tamagotchi-style virtual hangout. Pick a buddy, walk around the LCD room with 
 
 ## Stack
 
-- **server** — Node.js, Express, Socket.io
+- **server** — Python, FastAPI, python-socketio, uvicorn
 - **client** — React + Vite, vanilla CSS (no asset files; sprites are pure CSS pixel-art)
+
+## Prerequisites
+
+- Node.js 18+ (for the client)
+- Python 3.11+ and [`uv`](https://docs.astral.sh/uv/) (for the server) — install with `brew install uv` or `pipx install uv`
 
 ## Setup
 
@@ -13,14 +18,16 @@ A tamagotchi-style virtual hangout. Pick a buddy, walk around the LCD room with 
 npm run install:all
 ```
 
+This installs the root tooling, the client's npm deps, and runs `uv sync` in `server/` to create a `.venv` with FastAPI + python-socketio + uvicorn.
+
 ## Develop
 
 ```bash
 npm run dev
 ```
 
-- Server listens on `http://localhost:3001`
-- Client dev server on `http://localhost:5173`
+- Server (uvicorn) listens on `http://localhost:3001`
+- Client (Vite) on `http://localhost:5173`
 
 Open multiple browser tabs/windows at `http://localhost:5173` to test multi-user.
 
@@ -28,12 +35,12 @@ Open multiple browser tabs/windows at `http://localhost:5173` to test multi-user
 
 ```bash
 npm run build   # builds client into client/dist
-npm start       # express serves client/dist + sockets on PORT (default 3001)
+npm start       # uvicorn serves client/dist + Socket.IO on port 3001
 ```
 
-Anything that runs Node (Render, Fly, Railway, a small VPS) works. The server statically serves the built client; one port, one process.
+Anything that runs Python 3.11+ (Render, Fly, Railway, a small VPS) works. The server statically serves the built client; one port, one process.
 
-Set `PORT` via env var on your host. Friends join by visiting the URL.
+To change the port, run `cd server && uv run uvicorn main:asgi_app --port <port>` directly. Friends join by visiting the URL.
 
 ## Controls
 

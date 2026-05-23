@@ -4,3 +4,7 @@ dist/
 *.log
 .env
 .env.local
+server/.venv/
+server/__pycache__/
+server/**/__pycache__/
+server/*.egg-info/

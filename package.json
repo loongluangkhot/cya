@@ -4,10 +4,10 @@
   "private": true,
   "description": "cya — a tamagotchi-style virtual hangout room",
   "scripts": {
-    "install:all": "npm install && npm install --prefix server && npm install --prefix client",
-    "dev": "concurrently -n server,client -c blue,green \"npm run dev --prefix server\" \"npm run dev --prefix client\"",
+    "install:all": "npm install && npm install --prefix client && (cd server && uv sync)",
+    "dev": "concurrently -n server,client -c blue,green \"cd server && uv run uvicorn main:asgi_app --reload --port 3001\" \"npm run dev --prefix client\"",
     "build": "npm run build --prefix client",
-    "start": "npm start --prefix server"
+    "start": "cd server && uv run uvicorn main:asgi_app --port 3001"
   },
   "devDependencies": {
     "concurrently": "^9.0.1"

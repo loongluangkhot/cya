@@ -1,0 +1,10 @@
+[project]
+name = "cya-server"
+version = "0.1.0"
+description = "cya server — FastAPI + Socket.IO backend for the cya hangout app"
+requires-python = ">=3.11"
+dependencies = [
+  "fastapi>=0.115",
+  "uvicorn[standard]>=0.30",
+  "python-socketio>=5.11",
+]
