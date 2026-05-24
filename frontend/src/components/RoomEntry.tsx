@@ -57,6 +57,8 @@ export default function RoomEntry({
   const [me, setMe] = useState<Me | null>(loadStoredMe);
   const meRef = useRef<Me | null>(me);
   meRef.current = me;
+  const backgroundRef = useRef(background);
+  backgroundRef.current = background;
 
   const ready = roomCheck === 'ok' && me !== null;
 
@@ -88,7 +90,12 @@ export default function RoomEntry({
       if (!current || !roomId) return;
       socket.emit(
         'join',
-        { roomId, name: current.name, character: current.character },
+        {
+          roomId,
+          name: current.name,
+          character: current.character,
+          background: backgroundRef.current,
+        },
         (ack) => {
           if (!ack?.ok) setRoomCheck('not_found');
         },

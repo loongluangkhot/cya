@@ -6,6 +6,10 @@ export const BACKGROUNDS: BackgroundDef[] = [
   { id: 'downtown', name: 'Downtown' },
   { id: 'farm', name: 'Farm' },
   { id: 'themepark', name: 'Theme Park' },
+  { id: 'palletTown', name: 'Pallet Town' },
+  { id: 'viridianForest', name: 'Viridian Forest' },
+  { id: 'lavenderTown', name: 'Lavender Town' },
+  { id: 'pokemonCenter', name: 'Pokémon Center' },
 ];
 
 export const DEFAULT_BACKGROUND: BackgroundId = 'lcd';

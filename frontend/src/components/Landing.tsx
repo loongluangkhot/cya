@@ -69,17 +69,19 @@ export default function Landing({ theme, onThemeChange }: LandingProps) {
 
         <form onSubmit={joinByLink} className="field">
           <span>or join with a link</span>
-          <input
-            value={linkInput}
-            onChange={(e) => {
-              setLinkInput(e.target.value);
-              setLinkError(null);
-            }}
-            placeholder="paste room link or code"
-          />
-          <button type="submit" className="btn-secondary" disabled={!linkInput.trim()}>
-            join
-          </button>
+          <div className="field-row">
+            <input
+              value={linkInput}
+              onChange={(e) => {
+                setLinkInput(e.target.value);
+                setLinkError(null);
+              }}
+              placeholder="paste room link or code"
+            />
+            <button type="submit" className="btn-secondary" disabled={!linkInput.trim()}>
+              join
+            </button>
+          </div>
           {linkError && <small className="field-error">{linkError}</small>}
         </form>
 

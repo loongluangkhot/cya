@@ -1,26 +1,30 @@
-.PHONY: dev install server client build start clean
+.PHONY: dev backend frontend dev-remote backend-remote frontend-remote install clean check
 
 # Default target: run both backend and frontend.
 dev:
 	@trap 'kill 0' INT TERM EXIT; \
-	$(MAKE) -j2 --no-print-directory server client
+	$(MAKE) -j2 --no-print-directory backend frontend
 
-server:
-	cd server && uv run uvicorn main:asgi_app --reload --port 3001
+backend:
+	cd backend && uv run uvicorn main:asgi_app --reload --port 8001
 
-client:
-	npm run dev --prefix client
+frontend:
+	export BACKEND_URL=http://localhost:8001
+	npm run dev -- --port 3001
+
+dev-remote:
+	@trap 'kill 0' INT TERM EXIT; \
+	$(MAKE) -j2 --no-print-directory backend-remote frontend-remote
+
+backend-remote:
+	cd backend && uv run uvicorn main:asgi_app --reload --host 0.0.0.0 --port 8001
+
+frontend-remote:
+	export BACKEND_URL=http://$(HOST_IP):8001 && cd frontend && npm run dev -- --host 0.0.0.0 --port 3001
 
 install:
-	npm install
-	npm install --prefix client
-	cd server && uv sync
-
-build:
-	npm run build --prefix client
-
-start:
-	cd server && uv run uvicorn main:asgi_app --port 3001
+	cd frontend && npm install
+	cd backend && uv sync
 
 clean:
-	rm -rf client/dist client/node_modules node_modules server/.venv server/__pycache__
+	rm -rf frontend/dist frontend/node_modules backend/.venv backend/__pycache__

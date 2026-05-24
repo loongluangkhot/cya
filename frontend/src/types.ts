@@ -2,7 +2,16 @@ export type Direction = 'left' | 'right';
 
 export type CharacterId = string;
 export type ThemeId = string;
-export type BackgroundId = 'lcd' | 'classroom' | 'downtown' | 'farm' | 'themepark';
+export type BackgroundId =
+  | 'lcd'
+  | 'classroom'
+  | 'downtown'
+  | 'farm'
+  | 'themepark'
+  | 'palletTown'
+  | 'viridianForest'
+  | 'lavenderTown'
+  | 'pokemonCenter';
 
 export interface User {
   id: string;
@@ -32,6 +41,7 @@ export interface StatePayload {
   users: User[];
   messages: ChatMessage[];
   room: RoomDimensions;
+  background: BackgroundId;
 }
 
 export interface MovePayload {
@@ -60,6 +70,7 @@ export interface ServerToClientEvents {
   userMoved: (payload: MovePayload) => void;
   userUpdated: (payload: UserUpdatedPayload) => void;
   chatMessage: (msg: ChatMessage) => void;
+  backgroundChanged: (payload: { background: BackgroundId }) => void;
 }
 
 export interface JoinAck {
@@ -69,13 +80,19 @@ export interface JoinAck {
 
 export interface ClientToServerEvents {
   join: (
-    payload: { roomId: string; name: string; character: CharacterId },
+    payload: {
+      roomId: string;
+      name: string;
+      character: CharacterId;
+      background: BackgroundId;
+    },
     ack?: (res: JoinAck) => void,
   ) => void;
   move: (payload: { x: number; y: number; direction: Direction }) => void;
   chat: (payload: { text: string }) => void;
   updateCharacter: (payload: { character: CharacterId }) => void;
   updateName: (payload: { name: string }) => void;
+  updateBackground: (payload: { background: BackgroundId }) => void;
 }
 
 export interface ColorMap {

@@ -9,6 +9,7 @@ from typing import Any
 
 import socketio
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, PlainTextResponse
 
 from words import generate_slug
@@ -43,6 +44,7 @@ class ChatMessage:
 @dataclass
 class Room:
     id: str
+    background: str = "lcd"
     users: dict[str, User] = field(default_factory=dict)
     messages: list[ChatMessage] = field(default_factory=list)
 
@@ -76,6 +78,13 @@ def clamp(n: float, lo: float, hi: float) -> float:
 
 sio = socketio.AsyncServer(async_mode="asgi", cors_allowed_origins="*")
 fastapi_app = FastAPI()
+fastapi_app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=False,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 @fastapi_app.post("/api/rooms")
@@ -113,6 +122,12 @@ async def on_join(sid: str, payload: dict[str, Any]) -> dict[str, Any]:
     raw_name = str(payload.get("name") or "Guest")[:NAME_MAX].strip()
     safe_name = raw_name or "Guest"
     safe_char = str(payload.get("character") or "blob-pink")
+
+    if not room.users:
+        bg = str(payload.get("background") or "")[:40]
+        if bg:
+            room.background = bg
+
     x, y = random_spawn()
     user = User(
         id=sid,
@@ -131,6 +146,7 @@ async def on_join(sid: str, payload: dict[str, Any]) -> dict[str, Any]:
             "users": [asdict(u) for u in room.users.values()],
             "messages": [asdict(m) for m in room.messages],
             "room": {"width": ROOM_WIDTH, "height": ROOM_HEIGHT},
+            "background": room.background,
         },
         to=sid,
     )
@@ -202,6 +218,18 @@ async def on_update_name(sid: str, payload: dict[str, Any]) -> None:
     )
 
 
+@sio.on("updateBackground")
+async def on_update_background(sid: str, payload: dict[str, Any]) -> None:
+    room = await _current_room(sid)
+    if room is None:
+        return
+    bg = str(payload.get("background") or "")[:40]
+    if not bg or bg == room.background:
+        return
+    room.background = bg
+    await sio.emit("backgroundChanged", {"background": bg}, room=room.id)
+
+
 @sio.on("chat")
 async def on_chat(sid: str, payload: dict[str, Any]) -> None:
     room = await _current_room(sid)
@@ -261,5 +289,5 @@ else:
             "`npm run build` then `npm start`.\n"
         )
 
-
+print("ABOUT TO START!!!")
 asgi_app = socketio.ASGIApp(sio, other_asgi_app=fastapi_app)

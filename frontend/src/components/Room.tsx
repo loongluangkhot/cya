@@ -111,6 +111,10 @@ export default function Room({
   const settingsOpenRef = useRef(false);
   const screenFitRef = useRef<HTMLDivElement | null>(null);
   const screenSizeRef = useRef({ cw: 0, ch: 0 });
+  const backgroundRef = useRef(background);
+  backgroundRef.current = background;
+  const onBackgroundChangeRef = useRef(onBackgroundChange);
+  onBackgroundChangeRef.current = onBackgroundChange;
 
   function applyCamera() {
     const fit = screenFitRef.current;
@@ -140,16 +144,21 @@ export default function Room({
       you,
       users: list,
       messages: history,
+      background: roomBackground,
     }: {
       you: User;
       users: User[];
       messages: ChatMessage[];
+      background?: BackgroundId;
     }) {
       setMeId(you.id);
       setUsers(list);
       setMessages(history || []);
       posRef.current = { x: you.x, y: you.y, direction: you.direction };
       applyCamera();
+      if (roomBackground && roomBackground !== backgroundRef.current) {
+        onBackgroundChangeRef.current(roomBackground);
+      }
     }
     function onUserJoined(u: User) {
       setUsers((prev) => [...prev.filter((p) => p.id !== u.id), u]);
@@ -208,6 +217,9 @@ export default function Room({
         },
       }));
     }
+    function onBackgroundChanged({ background: bg }: { background: BackgroundId }) {
+      onBackgroundChangeRef.current(bg);
+    }
 
     socket.on('state', onState);
     socket.on('userJoined', onUserJoined);
@@ -215,6 +227,7 @@ export default function Room({
     socket.on('userMoved', onUserMoved);
     socket.on('userUpdated', onUserUpdated);
     socket.on('chatMessage', onChat);
+    socket.on('backgroundChanged', onBackgroundChanged);
 
     return () => {
       socket.off('state', onState);
@@ -223,6 +236,7 @@ export default function Room({
       socket.off('userMoved', onUserMoved);
       socket.off('userUpdated', onUserUpdated);
       socket.off('chatMessage', onChat);
+      socket.off('backgroundChanged', onBackgroundChanged);
     };
   }, []);
 
@@ -345,6 +359,11 @@ export default function Room({
     keysRef.current[key] = isDown;
   }
 
+  function handleBackgroundChange(bg: BackgroundId) {
+    onBackgroundChange(bg);
+    socket.emit('updateBackground', { background: bg });
+  }
+
   const sorted = [...users].sort((a, b) => a.y - b.y);
 
   return (
@@ -424,7 +443,7 @@ export default function Room({
         theme={theme}
         onThemeChange={onThemeChange}
         background={background}
-        onBackgroundChange={onBackgroundChange}
+        onBackgroundChange={handleBackgroundChange}
       />
     </div>
   );
