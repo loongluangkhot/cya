@@ -36,12 +36,20 @@ export interface RoomDimensions {
   height: number;
 }
 
+export interface PlaybackState {
+  trackUri: string | null;
+  isPlaying: boolean;
+  positionMs: number;
+  positionUpdatedAt: number;
+}
+
 export interface StatePayload {
   you: User;
   users: User[];
   messages: ChatMessage[];
   room: RoomDimensions;
   background: BackgroundId;
+  playback: PlaybackState;
 }
 
 export interface MovePayload {
@@ -71,6 +79,7 @@ export interface ServerToClientEvents {
   userUpdated: (payload: UserUpdatedPayload) => void;
   chatMessage: (msg: ChatMessage) => void;
   backgroundChanged: (payload: { background: BackgroundId }) => void;
+  playbackChanged: (payload: PlaybackState) => void;
 }
 
 export interface JoinAck {
@@ -93,6 +102,11 @@ export interface ClientToServerEvents {
   updateCharacter: (payload: { character: CharacterId }) => void;
   updateName: (payload: { name: string }) => void;
   updateBackground: (payload: { background: BackgroundId }) => void;
+  updatePlayback: (payload: {
+    trackUri: string | null;
+    isPlaying: boolean;
+    positionMs: number;
+  }) => void;
 }
 
 export interface ColorMap {

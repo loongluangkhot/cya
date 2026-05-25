@@ -1,4 +1,4 @@
-.PHONY: dev backend frontend dev-remote backend-remote frontend-remote install clean check
+.PHONY: dev backend frontend dev-remote backend-remote frontend-remote install clean
 
 # Default target: run both backend and frontend.
 dev:

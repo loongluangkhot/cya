@@ -3,7 +3,8 @@ import { COLLECTIONS } from '../characters';
 import Sprite from './Sprite';
 import ThemePicker from './ThemePicker';
 import BackgroundPicker from './BackgroundPicker';
-import type { BackgroundId, CharacterId, ThemeId } from '../types';
+import { extractSpotifyTrackUri } from '../spotify';
+import type { BackgroundId, CharacterId, PlaybackState, ThemeId } from '../types';
 
 interface SettingsProps {
   open: boolean;
@@ -16,6 +17,12 @@ interface SettingsProps {
   onThemeChange: (id: ThemeId) => void;
   background: BackgroundId;
   onBackgroundChange: (id: BackgroundId) => void;
+  playback: PlaybackState;
+  onPlaybackChange: (next: {
+    trackUri: string | null;
+    isPlaying: boolean;
+    positionMs: number;
+  }) => void;
 }
 
 export default function Settings({
@@ -29,8 +36,12 @@ export default function Settings({
   onThemeChange,
   background,
   onBackgroundChange,
+  playback,
+  onPlaybackChange,
 }: SettingsProps) {
   const [nameInput, setNameInput] = useState<string>(name ?? '');
+  const [musicInput, setMusicInput] = useState('');
+  const [musicError, setMusicError] = useState<string | null>(null);
 
   useEffect(() => {
     if (open) setNameInput(name ?? '');
@@ -54,6 +65,22 @@ export default function Settings({
     e?.preventDefault();
     if (!nameDirty) return;
     onNameChange(trimmed);
+  }
+
+  function submitTrack(e: FormEvent) {
+    e.preventDefault();
+    const uri = extractSpotifyTrackUri(musicInput);
+    if (!uri) {
+      setMusicError('paste a Spotify track link');
+      return;
+    }
+    setMusicError(null);
+    setMusicInput('');
+    onPlaybackChange({ trackUri: uri, isPlaying: true, positionMs: 0 });
+  }
+
+  function clearTrack() {
+    onPlaybackChange({ trackUri: null, isPlaying: false, positionMs: 0 });
   }
 
   return (
@@ -114,6 +141,28 @@ export default function Settings({
               </div>
             ))}
           </div>
+          <form className="field" onSubmit={submitTrack}>
+            <span>music</span>
+            <div className="field-row">
+              <input
+                value={musicInput}
+                onChange={(e) => {
+                  setMusicInput(e.target.value);
+                  setMusicError(null);
+                }}
+                placeholder="paste a Spotify track link"
+              />
+              <button type="submit" className="btn-secondary" disabled={!musicInput.trim()}>
+                play
+              </button>
+            </div>
+            {musicError && <small className="field-error">{musicError}</small>}
+            {playback.trackUri && (
+              <button type="button" className="btn-secondary music-clear" onClick={clearTrack}>
+                clear track
+              </button>
+            )}
+          </form>
           <div className="field">
             <span>background</span>
             <BackgroundPicker background={background} onChange={onBackgroundChange} />

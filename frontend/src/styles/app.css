@@ -404,6 +404,71 @@ button { cursor: pointer; }
 .dpad-right { grid-area: right; }
 .dpad-down { grid-area: down; }
 
+/* ---------- Side column (Spotify + chat) ---------- */
+.side-column {
+  flex: 0 0 320px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 0;
+}
+.side-column .chat-panel {
+  flex: 1 1 auto;
+}
+
+.spotify-player {
+  background: var(--surface);
+  border-radius: 16px;
+  border: 1px solid var(--accent-border);
+  padding: 10px;
+  box-shadow: 0 16px 32px rgba(0, 0, 0, 0.2);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  transition: border-color 0.25s ease;
+}
+.spotify-input {
+  display: flex;
+  gap: 6px;
+}
+.spotify-input input {
+  flex: 1;
+  min-width: 0;
+  padding: 8px 12px;
+  border-radius: 999px;
+  border: 2px solid var(--accent-border);
+  font-size: 13px;
+  outline: none;
+  background: #fff;
+}
+.spotify-input input:focus { border-color: var(--accent); }
+.spotify-input .btn-secondary {
+  padding: 6px 14px;
+  font-size: 12px;
+}
+.spotify-embed {
+  border-radius: 12px;
+  overflow: hidden;
+  min-height: 80px;
+}
+.spotify-embed iframe {
+  display: block;
+  width: 100%;
+  border: 0;
+}
+.music-clear {
+  align-self: flex-start;
+  margin-top: 8px;
+  font-size: 12px;
+  padding: 6px 14px;
+}
+.spotify-status {
+  display: block;
+  color: var(--ink-soft);
+  font-size: 12px;
+  font-style: italic;
+}
+
 /* ---------- Chat panel ---------- */
 .chat-panel {
   flex: 0 0 320px;
@@ -866,6 +931,10 @@ button { cursor: pointer; }
   .screen-area {
     flex: 1;
     min-height: 0;
+  }
+  .side-column {
+    flex: 0 0 auto;
+    gap: 8px;
   }
   .chat-panel {
     flex: 0 0 auto;

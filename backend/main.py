@@ -45,8 +45,21 @@ class ChatMessage:
 class Room:
     id: str
     background: str = "lcd"
+    track_uri: str | None = None
+    is_playing: bool = False
+    position_ms: int = 0
+    position_updated_at: float = 0.0
     users: dict[str, User] = field(default_factory=dict)
     messages: list[ChatMessage] = field(default_factory=list)
+
+
+def _playback_snapshot(room: Room) -> dict[str, Any]:
+    return {
+        "trackUri": room.track_uri,
+        "isPlaying": room.is_playing,
+        "positionMs": room.position_ms,
+        "positionUpdatedAt": room.position_updated_at,
+    }
 
 
 rooms: dict[str, Room] = {}
@@ -147,6 +160,7 @@ async def on_join(sid: str, payload: dict[str, Any]) -> dict[str, Any]:
             "messages": [asdict(m) for m in room.messages],
             "room": {"width": ROOM_WIDTH, "height": ROOM_HEIGHT},
             "background": room.background,
+            "playback": _playback_snapshot(room),
         },
         to=sid,
     )
@@ -215,6 +229,31 @@ async def on_update_name(sid: str, payload: dict[str, Any]) -> None:
         "userUpdated",
         {"id": sid, "name": user.name},
         room=room.id,
+    )
+
+
+@sio.on("updatePlayback")
+async def on_update_playback(sid: str, payload: dict[str, Any]) -> None:
+    room = await _current_room(sid)
+    if room is None:
+        return
+    raw_uri = payload.get("trackUri")
+    if raw_uri is None:
+        track_uri: str | None = None
+    else:
+        track_uri = str(raw_uri)[:200].strip() or None
+    room.track_uri = track_uri
+    room.is_playing = bool(payload.get("isPlaying", False))
+    try:
+        room.position_ms = max(0, int(payload.get("positionMs") or 0))
+    except (TypeError, ValueError):
+        room.position_ms = 0
+    room.position_updated_at = time.time() * 1000
+    await sio.emit(
+        "playbackChanged",
+        _playback_snapshot(room),
+        room=room.id,
+        skip_sid=sid,
     )
 
 
@@ -289,5 +328,4 @@ else:
             "`npm run build` then `npm start`.\n"
         )
 
-print("ABOUT TO START!!!")
 asgi_app = socketio.ASGIApp(sio, other_asgi_app=fastapi_app)

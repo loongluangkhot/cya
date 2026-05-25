@@ -11,15 +11,24 @@ import ChatBubble from './ChatBubble';
 import ChatPanel from './ChatPanel';
 import Settings from './Settings';
 import BackgroundLayer from './BackgroundLayer';
+import SpotifyPlayer from './SpotifyPlayer';
 import type {
   BackgroundId,
   BubbleState,
   CharacterId,
   ChatMessage,
   Direction,
+  PlaybackState,
   ThemeId,
   User,
 } from '../types';
+
+const EMPTY_PLAYBACK: PlaybackState = {
+  trackUri: null,
+  isPlaying: false,
+  positionMs: 0,
+  positionUpdatedAt: 0,
+};
 
 const SPEED = 5;
 const ROOM_W = 1280;
@@ -101,6 +110,7 @@ export default function Room({
   const [bubbles, setBubbles] = useState<Record<string, BubbleState>>({});
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [playback, setPlayback] = useState<PlaybackState>(EMPTY_PLAYBACK);
 
   const keysRef = useRef<Partial<Record<string, boolean>>>({});
   const posRef = useRef<PositionRef>({
@@ -145,11 +155,13 @@ export default function Room({
       users: list,
       messages: history,
       background: roomBackground,
+      playback: roomPlayback,
     }: {
       you: User;
       users: User[];
       messages: ChatMessage[];
       background?: BackgroundId;
+      playback?: PlaybackState;
     }) {
       setMeId(you.id);
       setUsers(list);
@@ -159,6 +171,7 @@ export default function Room({
       if (roomBackground && roomBackground !== backgroundRef.current) {
         onBackgroundChangeRef.current(roomBackground);
       }
+      if (roomPlayback) setPlayback(roomPlayback);
     }
     function onUserJoined(u: User) {
       setUsers((prev) => [...prev.filter((p) => p.id !== u.id), u]);
@@ -220,6 +233,9 @@ export default function Room({
     function onBackgroundChanged({ background: bg }: { background: BackgroundId }) {
       onBackgroundChangeRef.current(bg);
     }
+    function onPlaybackChanged(next: PlaybackState) {
+      setPlayback(next);
+    }
 
     socket.on('state', onState);
     socket.on('userJoined', onUserJoined);
@@ -228,6 +244,7 @@ export default function Room({
     socket.on('userUpdated', onUserUpdated);
     socket.on('chatMessage', onChat);
     socket.on('backgroundChanged', onBackgroundChanged);
+    socket.on('playbackChanged', onPlaybackChanged);
 
     return () => {
       socket.off('state', onState);
@@ -237,6 +254,7 @@ export default function Room({
       socket.off('userUpdated', onUserUpdated);
       socket.off('chatMessage', onChat);
       socket.off('backgroundChanged', onBackgroundChanged);
+      socket.off('playbackChanged', onPlaybackChanged);
     };
   }, []);
 
@@ -364,6 +382,20 @@ export default function Room({
     socket.emit('updateBackground', { background: bg });
   }
 
+  function handlePlaybackChange(next: {
+    trackUri: string | null;
+    isPlaying: boolean;
+    positionMs: number;
+  }) {
+    setPlayback({
+      trackUri: next.trackUri,
+      isPlaying: next.isPlaying,
+      positionMs: next.positionMs,
+      positionUpdatedAt: Date.now(),
+    });
+    socket.emit('updatePlayback', next);
+  }
+
   const sorted = [...users].sort((a, b) => a.y - b.y);
 
   return (
@@ -427,11 +459,14 @@ export default function Room({
             <span className="kb-hint">← ↑ ↓ → / WASD</span>
           </div>
         </div>
-        <ChatPanel
-          messages={messages}
-          onSend={sendMessage}
-          meId={meId}
-        />
+        <div className="side-column">
+          <SpotifyPlayer playback={playback} onLocalChange={handlePlaybackChange} />
+          <ChatPanel
+            messages={messages}
+            onSend={sendMessage}
+            meId={meId}
+          />
+        </div>
       </div>
       <Settings
         open={settingsOpen}
@@ -444,6 +479,8 @@ export default function Room({
         onThemeChange={onThemeChange}
         background={background}
         onBackgroundChange={handleBackgroundChange}
+        playback={playback}
+        onPlaybackChange={handlePlaybackChange}
       />
     </div>
   );
