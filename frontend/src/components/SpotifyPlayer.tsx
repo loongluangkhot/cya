@@ -9,7 +9,11 @@ import type { PlaybackState } from '../types';
 
 interface SpotifyPlayerProps {
   playback: PlaybackState;
-  onLocalChange: (next: { trackUri: string | null; isPlaying: boolean; positionMs: number }) => void;
+  onLocalChange: (next: {
+    trackUri: string | null;
+    isPlaying: boolean;
+    positionMs: number;
+  }) => void;
 }
 
 function effectivePosition(p: PlaybackState): number {
@@ -29,15 +33,15 @@ export default function SpotifyPlayer({ playback, onLocalChange }: SpotifyPlayer
   const playbackRef = useRef(playback);
   playbackRef.current = playback;
 
-  function suppressFor(ms: number) {
-    const until = Date.now() + ms;
-    if (until > suppressUntilRef.current) suppressUntilRef.current = until;
-  }
-
   const [input, setInput] = useState('');
   const [inputError, setInputError] = useState<string | null>(null);
   const [ready, setReady] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
+
+  function suppressFor(ms: number) {
+    const until = Date.now() + ms;
+    if (until > suppressUntilRef.current) suppressUntilRef.current = until;
+  }
 
   useEffect(() => {
     const container = mountRef.current;
@@ -53,13 +57,11 @@ export default function SpotifyPlayer({ playback, onLocalChange }: SpotifyPlayer
           return;
         }
         controllerRef.current = controller;
-
         controller.addListener('playback_update', (e) => {
           const u = e.data;
           lastUpdateRef.current = u;
           const prev = lastIsPausedRef.current;
           lastIsPausedRef.current = u.isPaused;
-
           if (prev === null || prev === u.isPaused) return;
           if (Date.now() < suppressUntilRef.current) return;
           const current = playbackRef.current;
@@ -70,11 +72,7 @@ export default function SpotifyPlayer({ playback, onLocalChange }: SpotifyPlayer
             positionMs: Math.round(u.position),
           });
         });
-
         setReady(true);
-
-        // The controller boots with a placeholder track; pause it then sync to
-        // whatever the room is currently playing.
         suppressFor(1500);
         controller.pause();
         applyRemote(controller, playbackRef.current);
@@ -111,7 +109,6 @@ export default function SpotifyPlayer({ playback, onLocalChange }: SpotifyPlayer
       loadedUriRef.current = null;
       return;
     }
-
     const targetMs = effectivePosition(p);
     if (loadedUriRef.current !== p.trackUri) {
       loadedUriRef.current = p.trackUri;
@@ -124,7 +121,6 @@ export default function SpotifyPlayer({ playback, onLocalChange }: SpotifyPlayer
       }, 600);
       return;
     }
-
     const last = lastUpdateRef.current;
     if (last && Math.abs(last.position - targetMs) > 1500) {
       suppressFor(800);
@@ -151,10 +147,15 @@ export default function SpotifyPlayer({ playback, onLocalChange }: SpotifyPlayer
     onLocalChange({ trackUri: uri, isPlaying: true, positionMs: 0 });
   }
 
+  function clearTrack() {
+    onLocalChange({ trackUri: null, isPlaying: false, positionMs: 0 });
+  }
+
   return (
-    <div className="spotify-player">
-      <form onSubmit={submitTrack} className="spotify-input">
+    <div>
+      <form className="music-input" onSubmit={submitTrack}>
         <input
+          type="text"
           value={input}
           onChange={(e) => {
             setInput(e.target.value);
@@ -162,16 +163,22 @@ export default function SpotifyPlayer({ playback, onLocalChange }: SpotifyPlayer
           }}
           placeholder="paste a Spotify track link"
         />
-        <button type="submit" className="btn-secondary" disabled={!input.trim()}>
-          play
-        </button>
+        <button type="submit" disabled={!input.trim()}>play</button>
       </form>
-      {inputError && <small className="field-error">{inputError}</small>}
-      {loadError && <small className="field-error">Spotify embed didn't load: {loadError}</small>}
-      {!ready && !loadError && (
-        <small className="spotify-status">loading Spotify player…</small>
-      )}
+      {inputError && <small className="music-error">{inputError}</small>}
+      {loadError && <small className="music-error">Spotify embed didn't load: {loadError}</small>}
+      {!ready && !loadError && <small className="spotify-status">loading Spotify player…</small>}
       <div ref={mountRef} className="spotify-embed" />
+      {playback.trackUri && (
+        <button
+          type="button"
+          className="btn btn-ghost compact"
+          style={{ marginTop: 12 }}
+          onClick={clearTrack}
+        >
+          clear track
+        </button>
+      )}
     </div>
   );
 }

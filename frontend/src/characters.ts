@@ -1,149 +1,268 @@
-import {
-  SLIME_GRID,
-  BLOB_PINK_GRID,
-  CHICK_YELLOW_GRID,
-  DINO_GREEN_GRID,
-  CAT_BLUE_GRID,
-  GHOST_PURPLE_GRID,
-  FOX_ORANGE_GRID,
-  PANDA_RED_GRID,
-  BUNNY_WHITE_GRID,
-} from './pixelGrids';
-import type {
-  CharacterCollection,
-  CharacterDef,
-  CharacterId,
-  ColorMap,
-} from './types';
+import type { CharacterDef, CharacterId, ColorDef, ColorId, ColorMap } from './types';
 
-const COMMON: ColorMap = {
-  O: '#ffffff',
-  E: '#1a1a1a',
-  W: '#ffffff',
-  M: '#1a1a1a',
+export const PIXEL_W = 12;
+export const PIXEL_H = 15;
+
+const BASE: ColorMap = {
+  f: '#f0c7a4',
+  a: '#f0c7a4',
+  e: '#1a1a1a',
+  l: '#262626',
+  b: '#0a0a0a',
+  w: '#ffffff',
+  k: '#000000',
 };
 
-const SLIME_COMMON: ColorMap = {
-  ...COMMON,
-  H: 'rgba(255, 255, 255, 0.55)',
+export const CHARACTERS: Record<CharacterId, CharacterDef> = {
+  chef: {
+    id: 'chef',
+    label: 'chef',
+    description: 'kitchen, dish in hand',
+    grid: [
+      '....hhhh....',
+      '...hhhhhh...',
+      '..hhhhhhhh..',
+      '..hhhhhhhh..',
+      '...iiiiii...',
+      '...ffffff...',
+      '...fefeef...',
+      '....ffff....',
+      '...appppa...',
+      '...awppwa...',
+      '...awppwa...',
+      '...appppa...',
+      '...ll..ll...',
+      '...ll..ll...',
+      '...bb..bb...',
+    ],
+    colors: { ...BASE, h: '#ffffff', i: '#d6442f' },
+  },
+  astronaut: {
+    id: 'astronaut',
+    label: 'astronaut',
+    description: 'space suit, helmet',
+    grid: [
+      '...hhhhhh...',
+      '..hhhhhhhh..',
+      '..hggggggh..',
+      '..hgggwggh..',
+      '..hggggggh..',
+      '..hgggggggh.',
+      '...hhhhhh...',
+      '....ffff....',
+      '...appppa...',
+      '...appwpa...',
+      '...appppa...',
+      '...appppa...',
+      '...ll..ll...',
+      '...ll..ll...',
+      '...bb..bb...',
+    ],
+    colors: { ...BASE, h: '#e9e9e9', g: '#1e3a5f' },
+  },
+  detective: {
+    id: 'detective',
+    label: 'detective',
+    description: 'fedora, raincoat',
+    grid: [
+      '............',
+      '....hhhh....',
+      '...hhhhhh...',
+      '.hhhhhhhhhh.',
+      '...iiiiii...',
+      '...ffffff...',
+      '...fefeef...',
+      '....ffff....',
+      '...appppa...',
+      '...gppppga..',
+      '...gppppg...',
+      '...gppppg...',
+      '...ll..ll...',
+      '...ll..ll...',
+      '...bb..bb...',
+    ],
+    colors: { ...BASE, h: '#5a3920', i: '#1a1a1a', g: '#3d2614' },
+  },
+  wizard: {
+    id: 'wizard',
+    label: 'wizard',
+    description: 'tall hat, beard',
+    grid: [
+      '.....hh.....',
+      '.....hh.....',
+      '....hhh.....',
+      '....hghh....',
+      '...hhhhh....',
+      '..hhhhhhh...',
+      '...ffffff...',
+      '...fefeef...',
+      '...appppa...',
+      '...awwwwa...',
+      '...awwwwa...',
+      '...awwwwa...',
+      '...appppa...',
+      '...ll..ll...',
+      '...bb..bb...',
+    ],
+    colors: { ...BASE, h: '#3a2257', g: '#f1d24f' },
+  },
+  diver: {
+    id: 'diver',
+    label: 'diver',
+    description: 'snorkel, mask',
+    grid: [
+      '............',
+      '............',
+      '.......h....',
+      '......hh....',
+      '......hh....',
+      '...ggggggi..',
+      '..gmmgmmgi..',
+      '...ffffff...',
+      '...appppa...',
+      '...apqqpa...',
+      '...apqqpa...',
+      '...appppa...',
+      '...ll..ll...',
+      '...ll..ll...',
+      '...bb..bb...',
+    ],
+    colors: {
+      ...BASE,
+      h: '#f7b500',
+      i: '#f7b500',
+      g: '#1a1a1a',
+      m: '#7adcff',
+      q: '#7adcff',
+    },
+  },
+  pilot: {
+    id: 'pilot',
+    label: 'pilot',
+    description: 'goggles, scarf',
+    grid: [
+      '............',
+      '....hhhh....',
+      '...hhhhhh...',
+      '...hhhhhh...',
+      '...ffffff...',
+      '..gggggggg..',
+      '..gmmgmmgg..',
+      '....ffff....',
+      '..ssssssss..',
+      '...appppa...',
+      '...appppa...',
+      '...appppa...',
+      '...ll..ll...',
+      '...ll..ll...',
+      '...bb..bb...',
+    ],
+    colors: { ...BASE, h: '#3a2614', g: '#1a1a1a', m: '#9bbcd4', s: '#d6442f' },
+  },
+  skater: {
+    id: 'skater',
+    label: 'skater',
+    description: 'backwards cap',
+    grid: [
+      '............',
+      '............',
+      '....hhhh....',
+      '...hhhhhhh..',
+      '...hhhhhh...',
+      '...ffffff...',
+      '...fefeef...',
+      '....ffff....',
+      '...appppa...',
+      '...appppa...',
+      '...appppa...',
+      '...appppa...',
+      '...ll..ll...',
+      '...ll..ll...',
+      '...bb..bb...',
+    ],
+    colors: { ...BASE, h: '#e9a423' },
+  },
+  knight: {
+    id: 'knight',
+    label: 'knight',
+    description: 'helmet, crest',
+    grid: [
+      '.....ii.....',
+      '.....ii.....',
+      '.....ii.....',
+      '...hhhhhh...',
+      '..hhhhhhhh..',
+      '..hhgghhhh..',
+      '..hhhhhhhh..',
+      '...hhhhhh...',
+      '...appppa...',
+      '...apwwpa...',
+      '...apwwpa...',
+      '...appppa...',
+      '...ll..ll...',
+      '...ll..ll...',
+      '...bb..bb...',
+    ],
+    colors: { ...BASE, h: '#9aa3b2', g: '#0a0a0a', i: '#d6442f' },
+  },
 };
 
-function slime(
-  id: CharacterId,
-  name: string,
-  body: string,
-  dark: string,
-): CharacterDef {
-  return {
-    id,
-    name,
-    type: 'pixel',
-    color: body,
-    grid: SLIME_GRID,
-    colors: { ...SLIME_COMMON, B: body, K: dark },
-  };
-}
-
-function tama(
-  id: CharacterId,
-  name: string,
-  grid: readonly string[],
-  color: string,
-  extra: ColorMap,
-): CharacterDef {
-  return {
-    id,
-    name,
-    type: 'pixel',
-    color,
-    grid,
-    colors: { ...COMMON, ...extra, B: extra.B ?? color },
-  };
-}
-
-export const COLLECTIONS: CharacterCollection[] = [
-  {
-    id: 'slimes',
-    name: 'Slime Monsters',
-    characters: [
-      slime('slime-blue', 'Cobalt', '#5fa5d6', '#3d7ba8'),
-      slime('slime-green', 'Mossy', '#7eb845', '#558524'),
-      slime('slime-pink', 'Rosy', '#d6557a', '#9a3354'),
-      slime('slime-yellow', 'Sunny', '#e0a82e', '#a87a14'),
-      slime('slime-purple', 'Plum', '#9670c9', '#6a4699'),
-      slime('slime-cyan', 'Frosty', '#5fc7c0', '#358e88'),
-    ],
-  },
-  {
-    id: 'tamagotchi',
-    name: 'Tamagotchi Buddies',
-    characters: [
-      tama('blob-pink', 'Pinkblob', BLOB_PINK_GRID, '#ff7eb6', {
-        K: '#c93f7d',
-        B: '#ff7eb6',
-        H: '#ffd2e3',
-        C: '#ff3a8a',
-      }),
-      tama('chick-yellow', 'Chickie', CHICK_YELLOW_GRID, '#ffd84d', {
-        K: '#a87a14',
-        B: '#ffd84d',
-        H: '#fff0b3',
-        A: '#ff8a30',
-        C: '#ff8aaa',
-      }),
-      tama('dino-green', 'Dino', DINO_GREEN_GRID, '#5fb850', {
-        K: '#2f6a30',
-        B: '#5fb850',
-        H: '#a8e09e',
-        S: '#3a8a3c',
-        M: '#2f4a2f',
-      }),
-      tama('cat-blue', 'Bluecat', CAT_BLUE_GRID, '#5fa5d6', {
-        K: '#1d5285',
-        B: '#5fa5d6',
-        H: '#a8d0f0',
-      }),
-      tama('ghost-purple', 'Spook', GHOST_PURPLE_GRID, '#9670c9', {
-        K: '#4d2f88',
-        B: '#9670c9',
-        H: '#c9b0e6',
-        M: '#3a1d6a',
-      }),
-      tama('fox-orange', 'Foxie', FOX_ORANGE_GRID, '#e88a3e', {
-        K: '#8c4416',
-        B: '#e88a3e',
-        H: '#ffc89a',
-        A: '#fff0d6',
-      }),
-      tama('panda-red', 'Pandee', PANDA_RED_GRID, '#a55540', {
-        K: '#5e2618',
-        B: '#a55540',
-        H: '#d68872',
-        A: '#3a1810',
-      }),
-      tama('bunny-white', 'Bunbun', BUNNY_WHITE_GRID, '#f0f0f0', {
-        K: '#8a8a8a',
-        B: '#f5f5f5',
-        H: '#ffffff',
-        A: '#ffb1d2',
-      }),
-    ],
-  },
+export const CHARACTER_IDS: CharacterId[] = [
+  'chef',
+  'astronaut',
+  'detective',
+  'wizard',
+  'diver',
+  'pilot',
+  'skater',
+  'knight',
 ];
 
-export const ALL_CHARACTERS: CharacterDef[] = COLLECTIONS.flatMap(
-  (c) => c.characters,
-);
+export const DEFAULT_CHARACTER: CharacterId = 'chef';
 
-export const DEFAULT_CHARACTER: CharacterId =
-  COLLECTIONS[0].characters[0].id;
+export const IDENTITY_COLORS: ColorDef[] = [
+  { id: 'rose', hex: '#e2536d' },
+  { id: 'amber', hex: '#e08a3b' },
+  { id: 'butter', hex: '#e9c443' },
+  { id: 'leaf', hex: '#5fb04d' },
+  { id: 'sea', hex: '#3aa8c4' },
+  { id: 'cobalt', hex: '#4566d4' },
+  { id: 'plum', hex: '#9a5cc7' },
+  { id: 'fog', hex: '#8a8f99' },
+];
 
-export const CHARACTERS = ALL_CHARACTERS;
+export const DEFAULT_COLOR: ColorId = 'leaf';
 
-export function getCharacterDef(id: CharacterId): CharacterDef | undefined {
-  return ALL_CHARACTERS.find((c) => c.id === id);
+export function colorHex(id: ColorId | string): string {
+  const found = IDENTITY_COLORS.find((c) => c.id === id);
+  return (found ?? IDENTITY_COLORS[3]).hex;
 }
 
-export function characterColor(id: CharacterId): string {
-  return getCharacterDef(id)?.color ?? '#666';
+export function darken(hex: string, amt = 0.25): string {
+  const h = hex.replace('#', '');
+  const expanded =
+    h.length === 3 ? h.replace(/./g, (c) => c + c) : h;
+  const n = parseInt(expanded, 16);
+  let r = (n >> 16) & 255;
+  let g = (n >> 8) & 255;
+  let b = n & 255;
+  r = Math.max(0, Math.floor(r * (1 - amt)));
+  g = Math.max(0, Math.floor(g * (1 - amt)));
+  b = Math.max(0, Math.floor(b * (1 - amt)));
+  return (
+    '#' +
+    [r, g, b].map((x) => x.toString(16).padStart(2, '0')).join('')
+  );
+}
+
+export function getCharacterDef(id: CharacterId | string): CharacterDef {
+  return CHARACTERS[id as CharacterId] ?? CHARACTERS.chef;
+}
+
+export function isCharacterId(id: string): id is CharacterId {
+  return id in CHARACTERS;
+}
+
+export function isColorId(id: string): id is ColorId {
+  return IDENTITY_COLORS.some((c) => c.id === id);
 }

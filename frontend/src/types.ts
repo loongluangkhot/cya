@@ -1,22 +1,40 @@
 export type Direction = 'left' | 'right';
 
-export type CharacterId = string;
-export type ThemeId = string;
-export type BackgroundId =
-  | 'lcd'
-  | 'classroom'
-  | 'downtown'
-  | 'farm'
-  | 'themepark'
-  | 'palletTown'
-  | 'viridianForest'
-  | 'lavenderTown'
-  | 'pokemonCenter';
+export type CharacterId =
+  | 'chef'
+  | 'astronaut'
+  | 'detective'
+  | 'wizard'
+  | 'diver'
+  | 'pilot'
+  | 'skater'
+  | 'knight';
+
+export type ColorId =
+  | 'rose'
+  | 'amber'
+  | 'butter'
+  | 'leaf'
+  | 'sea'
+  | 'cobalt'
+  | 'plum'
+  | 'fog';
+
+export type AmbientTime = 'dawn' | 'day' | 'dusk' | 'night';
+export type AmbientWeather = 'clear' | 'rain' | 'snow' | 'fog';
+export type AmbientRoom = 'clearing' | 'plaza';
+
+export interface Ambient {
+  time: AmbientTime;
+  weather: AmbientWeather;
+  room: AmbientRoom;
+}
 
 export interface User {
   id: string;
   name: string;
   character: CharacterId;
+  color: ColorId;
   x: number;
   y: number;
   direction: Direction;
@@ -27,6 +45,7 @@ export interface ChatMessage {
   userId: string;
   name: string;
   character: CharacterId;
+  color: ColorId;
   text: string;
   timestamp: number;
 }
@@ -48,7 +67,7 @@ export interface StatePayload {
   users: User[];
   messages: ChatMessage[];
   room: RoomDimensions;
-  background: BackgroundId;
+  ambient: Ambient;
   playback: PlaybackState;
 }
 
@@ -63,6 +82,7 @@ export interface UserUpdatedPayload {
   id: string;
   character?: CharacterId;
   name?: string;
+  color?: ColorId;
 }
 
 export interface BubbleState {
@@ -78,7 +98,7 @@ export interface ServerToClientEvents {
   userMoved: (payload: MovePayload) => void;
   userUpdated: (payload: UserUpdatedPayload) => void;
   chatMessage: (msg: ChatMessage) => void;
-  backgroundChanged: (payload: { background: BackgroundId }) => void;
+  ambientChanged: (payload: Ambient) => void;
   playbackChanged: (payload: PlaybackState) => void;
 }
 
@@ -93,15 +113,16 @@ export interface ClientToServerEvents {
       roomId: string;
       name: string;
       character: CharacterId;
-      background: BackgroundId;
+      color: ColorId;
     },
     ack?: (res: JoinAck) => void,
   ) => void;
   move: (payload: { x: number; y: number; direction: Direction }) => void;
   chat: (payload: { text: string }) => void;
   updateCharacter: (payload: { character: CharacterId }) => void;
+  updateColor: (payload: { color: ColorId }) => void;
   updateName: (payload: { name: string }) => void;
-  updateBackground: (payload: { background: BackgroundId }) => void;
+  updateAmbient: (payload: Partial<Ambient>) => void;
   updatePlayback: (payload: {
     trackUri: string | null;
     isPlaying: boolean;
@@ -115,26 +136,13 @@ export interface ColorMap {
 
 export interface CharacterDef {
   id: CharacterId;
-  name: string;
-  type: 'pixel';
-  color: string;
+  label: string;
+  description: string;
   grid: readonly string[];
   colors: ColorMap;
 }
 
-export interface CharacterCollection {
-  id: string;
-  name: string;
-  characters: CharacterDef[];
-}
-
-export interface ThemeDef {
-  id: ThemeId;
-  name: string;
-  swatch: [string, string];
-}
-
-export interface BackgroundDef {
-  id: BackgroundId;
-  name: string;
+export interface ColorDef {
+  id: ColorId;
+  hex: string;
 }

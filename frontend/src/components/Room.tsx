@@ -1,25 +1,27 @@
 import {
   useEffect,
-  useLayoutEffect,
   useRef,
   useState,
+  type FormEvent,
   type PointerEvent as ReactPointerEvent,
+  type ReactNode,
 } from 'react';
 import { socket } from '../socket';
-import Sprite from './Sprite';
-import ChatBubble from './ChatBubble';
-import ChatPanel from './ChatPanel';
-import Settings from './Settings';
-import BackgroundLayer from './BackgroundLayer';
+import IsoScene from './IsoScene';
+import PixelCharacter from './PixelCharacter';
 import SpotifyPlayer from './SpotifyPlayer';
+import Icon from './Icon';
+import { colorHex } from '../characters';
 import type {
-  BackgroundId,
+  Ambient,
+  AmbientRoom,
+  AmbientTime,
+  AmbientWeather,
   BubbleState,
   CharacterId,
   ChatMessage,
-  Direction,
+  ColorId,
   PlaybackState,
-  ThemeId,
   User,
 } from '../types';
 
@@ -30,192 +32,101 @@ const EMPTY_PLAYBACK: PlaybackState = {
   positionUpdatedAt: 0,
 };
 
-const SPEED = 5;
-const ROOM_W = 1280;
-const ROOM_H = 720;
+// Room is 1280×720 on the server. We map server coords to the iso scene's
+// 0..100 percent on the floor.
+const SERVER_W = 1280;
+const SERVER_H = 720;
+const STEP_PCT = 4;
+const SEND_INTERVAL_MS = 60;
 const BUBBLE_MS = 4500;
-const SEND_INTERVAL_MS = 50;
 
-type KeyName =
-  | 'arrowup'
-  | 'arrowdown'
-  | 'arrowleft'
-  | 'arrowright'
-  | 'w'
-  | 'a'
-  | 's'
-  | 'd';
-
-interface DPadProps {
-  press: (key: KeyName, isDown: boolean) => void;
-}
-
-function DPad({ press }: DPadProps) {
-  const make = (key: KeyName) => ({
-    onPointerDown: (e: ReactPointerEvent<HTMLButtonElement>) => {
-      e.preventDefault();
-      e.currentTarget.setPointerCapture?.(e.pointerId);
-      press(key, true);
-    },
-    onPointerUp: (e: ReactPointerEvent<HTMLButtonElement>) => {
-      e.preventDefault();
-      press(key, false);
-    },
-    onPointerCancel: () => press(key, false),
-    onPointerLeave: () => press(key, false),
-    onContextMenu: (e: React.MouseEvent) => e.preventDefault(),
-  });
-  return (
-    <div className="dpad" aria-label="movement controls">
-      <button type="button" className="dpad-btn dpad-up" aria-label="up" {...make('arrowup')}>↑</button>
-      <button type="button" className="dpad-btn dpad-left" aria-label="left" {...make('arrowleft')}>←</button>
-      <button type="button" className="dpad-btn dpad-right" aria-label="right" {...make('arrowright')}>→</button>
-      <button type="button" className="dpad-btn dpad-down" aria-label="down" {...make('arrowdown')}>↓</button>
-    </div>
-  );
-}
+// Iso floor area where the character can stand (with a margin).
+const MIN_PCT = 6;
+const MAX_PCT = 94;
 
 interface RoomProps {
   roomId: string;
-  theme: ThemeId;
-  onThemeChange: (id: ThemeId) => void;
-  character: CharacterId;
-  onCharacterChange: (id: CharacterId) => void;
-  name: string;
-  onNameChange: (name: string) => void;
-  background: BackgroundId;
-  onBackgroundChange: (id: BackgroundId) => void;
+  onEditMe: () => void;
+  onLeave: () => void;
 }
 
-interface PositionRef {
-  x: number;
-  y: number;
-  direction: Direction;
-}
+type Sheet = 'people' | 'chat' | 'music' | 'ambience' | null;
 
-export default function Room({
-  roomId,
-  theme,
-  onThemeChange,
-  character,
-  onCharacterChange,
-  name,
-  onNameChange,
-  background,
-  onBackgroundChange,
-}: RoomProps) {
+export default function Room({ roomId, onEditMe, onLeave }: RoomProps) {
   const [meId, setMeId] = useState<string | null>(null);
   const [users, setUsers] = useState<User[]>([]);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [bubbles, setBubbles] = useState<Record<string, BubbleState>>({});
-  const [settingsOpen, setSettingsOpen] = useState(false);
-  const [copied, setCopied] = useState(false);
-  const [playback, setPlayback] = useState<PlaybackState>(EMPTY_PLAYBACK);
-
-  const keysRef = useRef<Partial<Record<string, boolean>>>({});
-  const posRef = useRef<PositionRef>({
-    x: ROOM_W / 2,
-    y: ROOM_H / 2,
-    direction: 'right',
+  const [ambient, setAmbient] = useState<Ambient>({
+    time: 'dawn',
+    weather: 'clear',
+    room: 'clearing',
   });
-  const settingsOpenRef = useRef(false);
-  const screenFitRef = useRef<HTMLDivElement | null>(null);
-  const screenSizeRef = useRef({ cw: 0, ch: 0 });
-  const backgroundRef = useRef(background);
-  backgroundRef.current = background;
-  const onBackgroundChangeRef = useRef(onBackgroundChange);
-  onBackgroundChangeRef.current = onBackgroundChange;
+  const [playback, setPlayback] = useState<PlaybackState>(EMPTY_PLAYBACK);
+  const [sheet, setSheet] = useState<Sheet>(null);
+  const [draft, setDraft] = useState('');
+  const [toasts, setToasts] = useState<{ id: string; text: string }[]>([]);
 
-  function applyCamera() {
-    const fit = screenFitRef.current;
-    if (!fit) return;
-    const { cw, ch } = screenSizeRef.current;
-    if (cw <= 0 || ch <= 0) return;
-    const pos = posRef.current;
-    const camX =
-      cw >= ROOM_W
-        ? ROOM_W / 2
-        : Math.max(cw / 2, Math.min(ROOM_W - cw / 2, pos.x));
-    const camY =
-      ch >= ROOM_H
-        ? ROOM_H / 2
-        : Math.max(ch / 2, Math.min(ROOM_H - ch / 2, pos.y));
-    fit.style.setProperty('--crop-x', `${camX - cw / 2}px`);
-    fit.style.setProperty('--crop-y', `${camY - ch / 2}px`);
+  function pushToast(text: string) {
+    const id = Math.random().toString(36).slice(2);
+    setToasts((prev) => [...prev, { id, text }]);
+    window.setTimeout(() => {
+      setToasts((prev) => prev.filter((t) => t.id !== id));
+    }, 3200);
   }
 
-  useEffect(() => {
-    settingsOpenRef.current = settingsOpen;
-    if (settingsOpen) keysRef.current = {};
-  }, [settingsOpen]);
+  const posRef = useRef({ x: 50, y: 50 });
+  const keysRef = useRef<Set<string>>(new Set());
 
+  // ────────────── Socket wiring ──────────────
   useEffect(() => {
-    function onState({
-      you,
-      users: list,
-      messages: history,
-      background: roomBackground,
-      playback: roomPlayback,
-    }: {
+    function onState(payload: {
       you: User;
       users: User[];
       messages: ChatMessage[];
-      background?: BackgroundId;
-      playback?: PlaybackState;
+      ambient: Ambient;
+      playback: PlaybackState;
     }) {
-      setMeId(you.id);
-      setUsers(list);
-      setMessages(history || []);
-      posRef.current = { x: you.x, y: you.y, direction: you.direction };
-      applyCamera();
-      if (roomBackground && roomBackground !== backgroundRef.current) {
-        onBackgroundChangeRef.current(roomBackground);
-      }
-      if (roomPlayback) setPlayback(roomPlayback);
+      setMeId(payload.you.id);
+      const normalized = payload.users.map((u) => ({
+        ...u,
+        x: (u.x / SERVER_W) * 100,
+        y: (u.y / SERVER_H) * 100,
+      }));
+      setUsers(normalized);
+      setMessages(payload.messages ?? []);
+      if (payload.ambient) setAmbient(payload.ambient);
+      if (payload.playback) setPlayback(payload.playback);
+      const meServer = payload.you;
+      posRef.current = {
+        x: (meServer.x / SERVER_W) * 100,
+        y: (meServer.y / SERVER_H) * 100,
+      };
     }
-    function onUserJoined(u: User) {
-      setUsers((prev) => [...prev.filter((p) => p.id !== u.id), u]);
-    }
-    function onUserLeft({ id }: { id: string }) {
-      setUsers((prev) => prev.filter((p) => p.id !== id));
-      setBubbles((prev) => {
-        if (!prev[id]) return prev;
-        const next = { ...prev };
-        delete next[id];
-        return next;
-      });
-    }
-    function onUserMoved({
-      id,
-      x,
-      y,
-      direction,
-    }: {
-      id: string;
-      x: number;
-      y: number;
-      direction: Direction;
-    }) {
+    function onUserMoved({ id, x, y }: { id: string; x: number; y: number }) {
       setUsers((prev) =>
-        prev.map((p) => (p.id === id ? { ...p, x, y, direction } : p)),
+        prev.map((p) =>
+          p.id === id
+            ? { ...p, x: (x / SERVER_W) * 100, y: (y / SERVER_H) * 100 }
+            : p,
+        ),
       );
     }
-    function onUserUpdated({
-      id,
-      character,
-      name,
-    }: {
+    function onUserUpdated(payload: {
       id: string;
       character?: CharacterId;
       name?: string;
+      color?: ColorId;
     }) {
       setUsers((prev) =>
         prev.map((p) => {
-          if (p.id !== id) return p;
-          const next = { ...p };
-          if (character !== undefined) next.character = character;
-          if (name !== undefined) next.name = name;
-          return next;
+          if (p.id !== payload.id) return p;
+          return {
+            ...p,
+            ...(payload.character !== undefined && { character: payload.character }),
+            ...(payload.name !== undefined && { name: payload.name }),
+            ...(payload.color !== undefined && { color: payload.color }),
+          };
         }),
       );
     }
@@ -223,57 +134,73 @@ export default function Room({
       setMessages((prev) => [...prev, msg].slice(-200));
       setBubbles((prev) => ({
         ...prev,
-        [msg.userId]: {
-          text: msg.text,
-          expiresAt: Date.now() + BUBBLE_MS,
-          id: msg.id,
-        },
+        [msg.userId]: { text: msg.text, expiresAt: Date.now() + BUBBLE_MS, id: msg.id },
       }));
     }
-    function onBackgroundChanged({ background: bg }: { background: BackgroundId }) {
-      onBackgroundChangeRef.current(bg);
-    }
-    function onPlaybackChanged(next: PlaybackState) {
-      setPlayback(next);
+    function onAmbientChanged(next: Ambient) {
+      setAmbient(next);
     }
 
-    socket.on('state', onState);
-    socket.on('userJoined', onUserJoined);
-    socket.on('userLeft', onUserLeft);
+    // Server emits absolute coords; normalize here so peer % positions stay
+    // consistent inside the iso scene.
+    function handleUserJoined(u: User) {
+      const normalized = {
+        ...u,
+        x: (u.x / SERVER_W) * 100,
+        y: (u.y / SERVER_H) * 100,
+      };
+      setUsers((prev) => [...prev.filter((p) => p.id !== u.id), normalized]);
+      if (u.id !== meRef.current) pushToast(`${u.name} joined`);
+    }
+    function handleUserLeft(payload: { id: string }) {
+      // Capture name before we remove from state.
+      let name: string | undefined;
+      setUsers((prev) => {
+        const found = prev.find((p) => p.id === payload.id);
+        name = found?.name;
+        return prev.filter((p) => p.id !== payload.id);
+      });
+      setBubbles((prev) => {
+        if (!prev[payload.id]) return prev;
+        const next = { ...prev };
+        delete next[payload.id];
+        return next;
+      });
+      if (payload.id !== meRef.current && name) pushToast(`${name} left`);
+    }
+    function handlePlaybackChanged(next: PlaybackState) {
+      setPlayback((prev) => {
+        if (next.trackUri && next.trackUri !== prev.trackUri) {
+          pushToast('now playing · new track');
+        }
+        return next;
+      });
+    }
+
+    socket.on('state', onState as never);
+    socket.on('userJoined', handleUserJoined);
+    socket.on('userLeft', handleUserLeft);
     socket.on('userMoved', onUserMoved);
     socket.on('userUpdated', onUserUpdated);
     socket.on('chatMessage', onChat);
-    socket.on('backgroundChanged', onBackgroundChanged);
-    socket.on('playbackChanged', onPlaybackChanged);
+    socket.on('ambientChanged', onAmbientChanged);
+    socket.on('playbackChanged', handlePlaybackChanged);
 
     return () => {
-      socket.off('state', onState);
-      socket.off('userJoined', onUserJoined);
-      socket.off('userLeft', onUserLeft);
+      socket.off('state', onState as never);
+      socket.off('userJoined', handleUserJoined);
+      socket.off('userLeft', handleUserLeft);
       socket.off('userMoved', onUserMoved);
       socket.off('userUpdated', onUserUpdated);
       socket.off('chatMessage', onChat);
-      socket.off('backgroundChanged', onBackgroundChanged);
-      socket.off('playbackChanged', onPlaybackChanged);
+      socket.off('ambientChanged', onAmbientChanged);
+      socket.off('playbackChanged', handlePlaybackChanged);
     };
   }, []);
 
-  useLayoutEffect(() => {
-    const fit = screenFitRef.current;
-    if (!fit) return;
-    function update() {
-      if (!fit) return;
-      screenSizeRef.current = { cw: fit.clientWidth, ch: fit.clientHeight };
-      applyCamera();
-    }
-    update();
-    const ro = new ResizeObserver(update);
-    ro.observe(fit);
-    return () => ro.disconnect();
-  }, []);
-
+  // ────────────── Bubble expiry ──────────────
   useEffect(() => {
-    const t = setInterval(() => {
+    const id = setInterval(() => {
       setBubbles((prev) => {
         const now = Date.now();
         let changed = false;
@@ -285,27 +212,82 @@ export default function Room({
         return changed ? next : prev;
       });
     }, 500);
-    return () => clearInterval(t);
+    return () => clearInterval(id);
   }, []);
 
+  // ────────────── Movement input (arrow keys + D-pad) ──────────────
+  const meRef = useRef<string | null>(null);
+  meRef.current = meId;
+  const lastSentSig = useRef('');
+
+  function nudge(dx: number, dy: number) {
+    if (!meRef.current) return;
+    const cur = posRef.current;
+    const m = dx && dy ? Math.SQRT1_2 : 1;
+    const nx = Math.max(MIN_PCT, Math.min(MAX_PCT, cur.x + dx * STEP_PCT * m));
+    const ny = Math.max(MIN_PCT, Math.min(MAX_PCT, cur.y + dy * STEP_PCT * m));
+    posRef.current = { x: nx, y: ny };
+    setUsers((prev) =>
+      prev.map((p) => (p.id === meRef.current ? { ...p, x: nx, y: ny } : p)),
+    );
+    const sig = `${Math.round(nx)},${Math.round(ny)}`;
+    if (sig !== lastSentSig.current) {
+      lastSentSig.current = sig;
+      socket.emit('move', {
+        x: (nx / 100) * SERVER_W,
+        y: (ny / 100) * SERVER_H,
+        direction: 'right',
+      });
+    }
+  }
+
+  // Arrow key handler — drive our own repeat (avoid OS auto-repeat delay).
   useEffect(() => {
+    const held = keysRef.current;
+    let timer: number | null = null;
+
+    function tick() {
+      let dx = 0;
+      let dy = 0;
+      if (held.has('ArrowUp')) dy -= 1;
+      if (held.has('ArrowDown')) dy += 1;
+      if (held.has('ArrowLeft')) dx -= 1;
+      if (held.has('ArrowRight')) dx += 1;
+      if (dx || dy) nudge(dx, dy);
+    }
+
     function down(e: KeyboardEvent) {
-      if (settingsOpenRef.current) return;
       const target = e.target as HTMLElement | null;
       const tag = target?.tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA') return;
-      const k = e.key.toLowerCase();
-      if (['arrowup', 'arrowdown', 'arrowleft', 'arrowright', 'w', 'a', 's', 'd'].includes(k)) {
-        e.preventDefault();
-        keysRef.current[k] = true;
+      if (!['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) return;
+      e.preventDefault();
+      if (e.repeat) return;
+      if (!held.has(e.key)) {
+        const first = held.size === 0;
+        held.add(e.key);
+        if (first) {
+          tick();
+          timer = window.setInterval(tick, 130);
+        }
       }
     }
     function up(e: KeyboardEvent) {
-      keysRef.current[e.key.toLowerCase()] = false;
+      if (!held.has(e.key)) return;
+      held.delete(e.key);
+      if (held.size === 0 && timer !== null) {
+        clearInterval(timer);
+        timer = null;
+      }
     }
     function blur() {
-      keysRef.current = {};
+      held.clear();
+      if (timer !== null) {
+        clearInterval(timer);
+        timer = null;
+      }
     }
+
     window.addEventListener('keydown', down);
     window.addEventListener('keyup', up);
     window.addEventListener('blur', blur);
@@ -313,80 +295,25 @@ export default function Room({
       window.removeEventListener('keydown', down);
       window.removeEventListener('keyup', up);
       window.removeEventListener('blur', blur);
+      if (timer !== null) clearInterval(timer);
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  useEffect(() => {
-    if (!meId) return;
-    let raf = 0;
-    let lastSendT = 0;
-    let lastSentSig = '';
-
-    function tick() {
-      const k = keysRef.current;
-      const pos = posRef.current;
-      let dx = 0;
-      let dy = 0;
-      if (k['arrowup'] || k['w']) dy -= SPEED;
-      if (k['arrowdown'] || k['s']) dy += SPEED;
-      if (k['arrowleft'] || k['a']) { dx -= SPEED; pos.direction = 'left'; }
-      if (k['arrowright'] || k['d']) { dx += SPEED; pos.direction = 'right'; }
-
-      if (dx !== 0 || dy !== 0) {
-        pos.x = Math.max(60, Math.min(ROOM_W - 60, pos.x + dx));
-        pos.y = Math.max(180, Math.min(ROOM_H - 40, pos.y + dy));
-      }
-
-      const now = performance.now();
-      const sig = `${Math.round(pos.x)},${Math.round(pos.y)},${pos.direction}`;
-      if (now - lastSendT > SEND_INTERVAL_MS && sig !== lastSentSig) {
-        lastSendT = now;
-        lastSentSig = sig;
-        setUsers((prev) =>
-          prev.map((p) =>
-            p.id === meId
-              ? { ...p, x: pos.x, y: pos.y, direction: pos.direction }
-              : p,
-          ),
-        );
-        socket.emit('move', { x: pos.x, y: pos.y, direction: pos.direction });
-        applyCamera();
-      }
-
-      raf = requestAnimationFrame(tick);
-    }
-    raf = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(raf);
-  }, [meId]);
-
+  // ────────────── Send chat ──────────────
   function sendMessage(text: string) {
-    socket.emit('chat', { text });
+    const t = text.trim();
+    if (!t) return;
+    socket.emit('chat', { text: t });
+    setDraft('');
   }
 
-  async function copyLink() {
-    try {
-      await navigator.clipboard.writeText(window.location.href);
-      setCopied(true);
-      window.setTimeout(() => setCopied(false), 1500);
-    } catch {
-      // ignore — clipboard may be unavailable
-    }
+  function changeAmbient(next: Partial<Ambient>) {
+    setAmbient((cur) => ({ ...cur, ...next }));
+    socket.emit('updateAmbient', next);
   }
 
-  function pressKey(key: KeyName, isDown: boolean) {
-    keysRef.current[key] = isDown;
-  }
-
-  function handleBackgroundChange(bg: BackgroundId) {
-    onBackgroundChange(bg);
-    socket.emit('updateBackground', { background: bg });
-  }
-
-  function handlePlaybackChange(next: {
-    trackUri: string | null;
-    isPlaying: boolean;
-    positionMs: number;
-  }) {
+  function changePlayback(next: { trackUri: string | null; isPlaying: boolean; positionMs: number }) {
     setPlayback({
       trackUri: next.trackUri,
       isPlaying: next.isPlaying,
@@ -396,92 +323,480 @@ export default function Room({
     socket.emit('updatePlayback', next);
   }
 
-  const sorted = [...users].sort((a, b) => a.y - b.y);
+  const peersById: Record<string, User> = Object.fromEntries(users.map((u) => [u.id, u]));
 
   return (
-    <div className="app-root">
-      <header className="app-header">
-        <span className="app-title">cya</span>
-        <span className="app-room-id" title="room code">
-          /r/{roomId}
-        </span>
-        <div className="app-header-right">
-          <span className="app-count">
-            <span className="live-dot" />
-            {users.length} online
-          </span>
-          <button
-            type="button"
-            className="settings-btn"
-            onClick={copyLink}
-            aria-label="copy room link"
-          >
-            {copied ? 'copied!' : 'copy link'}
-          </button>
-          <button
-            type="button"
-            className="settings-btn"
-            onClick={() => setSettingsOpen(true)}
-            aria-label="open settings"
-          >
-            settings
-          </button>
-        </div>
-      </header>
-      <div className="app-main">
-        <div className="screen-area">
-          <div className="screen-fit" ref={screenFitRef}>
-            <div className="screen" data-bg={background}>
-              <BackgroundLayer id={background} />
-              {sorted.map((u) => (
-                <div
-                  key={u.id}
-                  className="sprite-stage"
-                  style={{
-                    left: `calc(${u.x}px - var(--crop-x, 0px))`,
-                    top: `calc(${u.y}px - var(--crop-y, 0px))`,
-                  }}
-                >
-                  {bubbles[u.id] && (
-                    <div className="bubble-wrap">
-                      <ChatBubble text={bubbles[u.id].text} />
-                    </div>
-                  )}
-                  <div className="sprite-name">
-                    {u.name}
-                    {u.id === meId && <span className="you-tag">you</span>}
-                  </div>
-                  <Sprite character={u.character} direction={u.direction} />
-                </div>
-              ))}
-            </div>
-            <DPad press={pressKey} />
-            <span className="kb-hint">← ↑ ↓ → / WASD</span>
-          </div>
-        </div>
-        <div className="side-column">
-          <SpotifyPlayer playback={playback} onLocalChange={handlePlaybackChange} />
-          <ChatPanel
-            messages={messages}
-            onSend={sendMessage}
-            meId={meId}
-          />
-        </div>
-      </div>
-      <Settings
-        open={settingsOpen}
-        onClose={() => setSettingsOpen(false)}
-        name={name}
-        onNameChange={onNameChange}
-        character={character}
-        onCharacterChange={onCharacterChange}
-        theme={theme}
-        onThemeChange={onThemeChange}
-        background={background}
-        onBackgroundChange={handleBackgroundChange}
-        playback={playback}
-        onPlaybackChange={handlePlaybackChange}
+    <div className="room-root">
+      <IsoScene peers={users} meId={meId} bubbles={bubbles} room={ambient.room} />
+      <AmbienceOverlay ambient={ambient} />
+
+      <DPad onNudge={nudge} />
+
+      <RoomTopBar
+        roomId={roomId}
+        peers={users}
+        onOpenPeople={() => setSheet('people')}
+        onLeave={onLeave}
       />
+
+      <IrcLog messages={messages.slice(-4)} peersById={peersById} />
+
+      <RoomDock
+        ambient={ambient}
+        playback={playback}
+        draft={draft}
+        setDraft={setDraft}
+        onSend={sendMessage}
+        onOpenMusic={() => setSheet('music')}
+        onOpenAmbience={() => setSheet('ambience')}
+        onOpenChat={() => setSheet('chat')}
+      />
+
+      <Toasts items={toasts} />
+
+      <PeopleSheet
+        open={sheet === 'people'}
+        onClose={() => setSheet(null)}
+        peers={users}
+        meId={meId}
+      />
+      <ChatLogSheet
+        open={sheet === 'chat'}
+        onClose={() => setSheet(null)}
+        messages={messages}
+        peersById={peersById}
+      />
+      <MusicSheet
+        open={sheet === 'music'}
+        onClose={() => setSheet(null)}
+        playback={playback}
+        onPlaybackChange={changePlayback}
+      />
+      <AmbienceSheet
+        open={sheet === 'ambience'}
+        onClose={() => setSheet(null)}
+        ambient={ambient}
+        onChange={changeAmbient}
+      />
+
+      <button
+        type="button"
+        className="text-link"
+        onClick={onEditMe}
+        style={{ position: 'absolute', left: 12, top: 12, zIndex: 110 }}
+      >
+        edit me
+      </button>
+    </div>
+  );
+}
+
+// ───────── Top bar ─────────
+
+interface RoomTopBarProps {
+  roomId: string;
+  peers: User[];
+  onOpenPeople: () => void;
+  onLeave: () => void;
+}
+
+function RoomTopBar({ roomId, peers, onOpenPeople, onLeave }: RoomTopBarProps) {
+  const displayName = roomId.replace(/-/g, ' ');
+  const host = typeof window !== 'undefined' ? window.location.host : '';
+  const stackOffset = Math.min(2, peers.length - 1);
+  const headsToShow = peers.slice(0, 3);
+  return (
+    <div className="room-top">
+      <div className="room-top-title">
+        <div className="slug">{host}/r/{roomId}</div>
+        <div className="name">{displayName}</div>
+      </div>
+      <div className="room-top-actions">
+        <button type="button" className="people-pill" onClick={onOpenPeople}>
+          <div className="head-stack" style={{ width: 22 + Math.max(0, stackOffset) * 12 }}>
+            {headsToShow.map((p, i) => (
+              <div key={p.id} className="head" style={{ left: i * 12 }}>
+                <PixelCharacter character={p.character} color={colorHex(p.color)} scale={2} crop="head" />
+              </div>
+            ))}
+          </div>
+          <span style={{ marginLeft: 4 }}>{peers.length}</span>
+        </button>
+        <button type="button" className="icon-btn" aria-label="leave" onClick={onLeave}>
+          <Icon name="leave" size={16} />
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ───────── Dock ─────────
+
+interface RoomDockProps {
+  ambient: Ambient;
+  playback: PlaybackState;
+  draft: string;
+  setDraft: (v: string) => void;
+  onSend: (text: string) => void;
+  onOpenMusic: () => void;
+  onOpenAmbience: () => void;
+  onOpenChat: () => void;
+}
+
+function ambientGlyph(a: Ambient): string {
+  if (a.weather === 'rain') return '☂';
+  if (a.weather === 'snow') return '❄';
+  if (a.weather === 'fog') return '≈';
+  if (a.time === 'night') return '☾';
+  if (a.time === 'dawn') return '☀';
+  if (a.time === 'dusk') return '☉';
+  return '☀';
+}
+
+function RoomDock({
+  ambient,
+  playback,
+  draft,
+  setDraft,
+  onSend,
+  onOpenMusic,
+  onOpenAmbience,
+  onOpenChat,
+}: RoomDockProps) {
+  function submit(e: FormEvent) {
+    e.preventDefault();
+    onSend(draft);
+  }
+  return (
+    <form className="dock" onSubmit={submit}>
+      <div className="dock-chips">
+        <button type="button" className="dock-chip" onClick={onOpenMusic}>
+          <div
+            className="dock-chip-art"
+            style={{ background: 'linear-gradient(135deg, #2b2118 0%, #b54822 100%)' }}
+          />
+          <div className="dock-chip-text">
+            <div className="dock-chip-title">
+              {playback.trackUri ? 'now playing' : 'no track'}
+            </div>
+            <div className="dock-chip-meta">
+              {playback.trackUri
+                ? playback.isPlaying
+                  ? '▶ playing · open'
+                  : '⏸ paused · open'
+                : 'tap to set a track'}
+            </div>
+          </div>
+        </button>
+        <button type="button" className="dock-chip compact" onClick={onOpenAmbience} aria-label="ambience">
+          <span className="dock-chip-glyph">{ambientGlyph(ambient)}</span>
+          <span className="dock-chip-meta" style={{ fontWeight: 700 }}>{ambient.time}</span>
+        </button>
+      </div>
+      <div className="composer">
+        <input
+          className="composer-input"
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          placeholder="say something…"
+          maxLength={200}
+        />
+        <button
+          type="button"
+          className="composer-btn"
+          aria-label="open log"
+          onClick={onOpenChat}
+        >
+          <Icon name="chat" size={18} />
+        </button>
+        {draft.trim() && (
+          <button type="submit" className="composer-btn is-send" aria-label="send">
+            <Icon name="send" size={16} />
+          </button>
+        )}
+      </div>
+    </form>
+  );
+}
+
+// ───────── D-pad ─────────
+
+interface DPadProps {
+  onNudge: (dx: number, dy: number) => void;
+}
+
+function DPad({ onNudge }: DPadProps) {
+  const holdRef = useRef<number | null>(null);
+  function start(dx: number, dy: number) {
+    return (e: ReactPointerEvent<HTMLButtonElement>) => {
+      e.preventDefault();
+      e.currentTarget.setPointerCapture?.(e.pointerId);
+      onNudge(dx, dy);
+      if (holdRef.current !== null) clearInterval(holdRef.current);
+      holdRef.current = window.setInterval(() => onNudge(dx, dy), 130);
+    };
+  }
+  function stop() {
+    if (holdRef.current !== null) clearInterval(holdRef.current);
+    holdRef.current = null;
+  }
+  useEffect(() => () => stop(), []);
+
+  function btn(dx: number, dy: number, glyph: string, label: string, klass: string) {
+    return (
+      <button
+        type="button"
+        aria-label={label}
+        className={`dpad-btn ${klass}`}
+        onPointerDown={start(dx, dy)}
+        onPointerUp={stop}
+        onPointerLeave={stop}
+        onPointerCancel={stop}
+      >
+        {glyph}
+      </button>
+    );
+  }
+
+  return (
+    <div className="dpad" aria-label="movement controls">
+      {btn(0, -1, '▲', 'up', 'dpad-up')}
+      {btn(-1, 0, '◀', 'left', 'dpad-left')}
+      <div className="dpad-core" aria-hidden="true" />
+      {btn(1, 0, '▶', 'right', 'dpad-right')}
+      {btn(0, 1, '▼', 'down', 'dpad-down')}
+    </div>
+  );
+}
+
+// ───────── Toasts ─────────
+
+function Toasts({ items }: { items: { id: string; text: string }[] }) {
+  if (items.length === 0) return null;
+  return (
+    <div className="toasts">
+      {items.map((t) => (
+        <div key={t.id} className="toast">{t.text}</div>
+      ))}
+    </div>
+  );
+}
+
+// ───────── IRC log ─────────
+
+interface IrcLogProps {
+  messages: ChatMessage[];
+  peersById: Record<string, User>;
+}
+
+function IrcLog({ messages, peersById }: IrcLogProps) {
+  return (
+    <div className="irc-log">
+      {messages.map((m) => {
+        const peer = peersById[m.userId];
+        const c = peer ? colorHex(peer.color) : colorHex(m.color);
+        const age = Date.now() - m.timestamp;
+        const opacity = Math.max(0.45, 1 - age / 16000);
+        return (
+          <div className="irc-row" key={m.id} style={{ opacity }}>
+            <span className="irc-name" style={{ color: c }}>&lt;{m.name}&gt;</span>
+            <span style={{ marginLeft: 6 }}>{m.text}</span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ───────── Ambience overlay ─────────
+
+const TIME_TINTS: Record<AmbientTime, string> = {
+  dawn: 'rgba(255,180,120,0.18)',
+  day: 'rgba(255,255,200,0.04)',
+  dusk: 'rgba(180,120,200,0.20)',
+  night: 'rgba(20,20,60,0.42)',
+};
+
+function AmbienceOverlay({ ambient }: { ambient: Ambient }) {
+  return (
+    <>
+      <div className="ambient-overlay" style={{ background: TIME_TINTS[ambient.time] }} />
+      {ambient.weather === 'rain' && <div className="ambient-rain" />}
+      {ambient.weather === 'snow' && <div className="ambient-snow" />}
+      {ambient.weather === 'fog' && <div className="ambient-fog" />}
+    </>
+  );
+}
+
+// ───────── Sheets ─────────
+
+interface SheetProps {
+  open: boolean;
+  title: string;
+  onClose: () => void;
+  children: ReactNode;
+  tall?: boolean;
+}
+
+function Sheet({ open, title, onClose, children, tall }: SheetProps) {
+  return (
+    <div className={`sheet-root ${open ? 'open' : 'closed'}`}>
+      <div className="sheet-backdrop" onClick={onClose} />
+      <div className={`sheet${tall ? ' tall' : ''}`}>
+        <div className="sheet-head">
+          <div className="sheet-title">{title}</div>
+          <button type="button" className="sheet-close" onClick={onClose} aria-label="close">
+            <Icon name="x" size={14} />
+          </button>
+        </div>
+        <div className="sheet-body">{children}</div>
+      </div>
+    </div>
+  );
+}
+
+function PeopleSheet({ open, onClose, peers, meId }: { open: boolean; onClose: () => void; peers: User[]; meId: string | null }) {
+  return (
+    <Sheet open={open} onClose={onClose} title={`${peers.length} in the room`}>
+      <div>
+        {peers.map((p) => (
+          <div key={p.id} className="person-row">
+            <PixelCharacter character={p.character} color={colorHex(p.color)} scale={3} />
+            <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
+              <div className="name">{p.name}{p.id === meId ? ' (you)' : ''}</div>
+              <div className="role">{p.id === meId ? 'this is you' : 'here now'}</div>
+            </div>
+            <span className="live-dot" />
+          </div>
+        ))}
+      </div>
+    </Sheet>
+  );
+}
+
+function ChatLogSheet({
+  open,
+  onClose,
+  messages,
+  peersById,
+}: {
+  open: boolean;
+  onClose: () => void;
+  messages: ChatMessage[];
+  peersById: Record<string, User>;
+}) {
+  const ref = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (open && ref.current) ref.current.scrollTop = ref.current.scrollHeight;
+  }, [open, messages.length]);
+  return (
+    <Sheet open={open} onClose={onClose} title="log" tall>
+      <div ref={ref}>
+        {messages.map((m) => {
+          const peer = peersById[m.userId];
+          const c = peer ? colorHex(peer.color) : colorHex(m.color);
+          return (
+            <div key={m.id} className="chat-row">
+              <span className="time">{new Date(m.timestamp).toTimeString().slice(0, 5)}</span>
+              <span className="who" style={{ color: c }}>&lt;{m.name}&gt;</span>
+              <span className="text">{m.text}</span>
+            </div>
+          );
+        })}
+        {messages.length === 0 && <div className="chat-empty">nothing said yet</div>}
+      </div>
+    </Sheet>
+  );
+}
+
+function MusicSheet({
+  open,
+  onClose,
+  playback,
+  onPlaybackChange,
+}: {
+  open: boolean;
+  onClose: () => void;
+  playback: PlaybackState;
+  onPlaybackChange: (next: { trackUri: string | null; isPlaying: boolean; positionMs: number }) => void;
+}) {
+  return (
+    <Sheet open={open} onClose={onClose} title="music" tall>
+      <div className="h-mono" style={{ marginBottom: 14, fontWeight: 700 }}>
+        anyone in the room can swap tracks.
+      </div>
+      <SpotifyPlayer playback={playback} onLocalChange={onPlaybackChange} />
+    </Sheet>
+  );
+}
+
+function AmbienceSheet({
+  open,
+  onClose,
+  ambient,
+  onChange,
+}: {
+  open: boolean;
+  onClose: () => void;
+  ambient: Ambient;
+  onChange: (next: Partial<Ambient>) => void;
+}) {
+  return (
+    <Sheet open={open} onClose={onClose} title="ambience">
+      <div className="body-text" style={{ marginBottom: 18 }}>
+        everyone in the room sees these changes immediately.
+      </div>
+      <Dial
+        label="room"
+        value={ambient.room}
+        options={['clearing', 'plaza']}
+        onChange={(v) => onChange({ room: v as AmbientRoom })}
+        cols2
+      />
+      <Dial
+        label="time"
+        value={ambient.time}
+        options={['dawn', 'day', 'dusk', 'night']}
+        onChange={(v) => onChange({ time: v as AmbientTime })}
+      />
+      <Dial
+        label="weather"
+        value={ambient.weather}
+        options={['clear', 'rain', 'snow', 'fog']}
+        onChange={(v) => onChange({ weather: v as AmbientWeather })}
+      />
+    </Sheet>
+  );
+}
+
+function Dial({
+  label,
+  value,
+  options,
+  onChange,
+  cols2 = false,
+}: {
+  label: string;
+  value: string;
+  options: string[];
+  onChange: (v: string) => void;
+  cols2?: boolean;
+}) {
+  return (
+    <div className="dial-group">
+      <div className="label">{label}</div>
+      <div className={`dial-options${cols2 ? ' cols-2' : ''}`}>
+        {options.map((o) => (
+          <button
+            key={o}
+            type="button"
+            className={`dial-btn${o === value ? ' selected' : ''}`}
+            onClick={() => onChange(o)}
+          >
+            {o}
+          </button>
+        ))}
+      </div>
     </div>
   );
 }

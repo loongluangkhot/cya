@@ -26,6 +26,7 @@ class User:
     id: str
     name: str
     character: str
+    color: str
     x: float
     y: float
     direction: str
@@ -37,14 +38,22 @@ class ChatMessage:
     userId: str
     name: str
     character: str
+    color: str
     text: str
     timestamp: int
 
 
 @dataclass
+class Ambient:
+    time: str = "dawn"
+    weather: str = "clear"
+    room: str = "clearing"
+
+
+@dataclass
 class Room:
     id: str
-    background: str = "lcd"
+    ambient: Ambient = field(default_factory=Ambient)
     track_uri: str | None = None
     is_playing: bool = False
     position_ms: int = 0
@@ -114,6 +123,21 @@ async def get_room_endpoint(room_id: str) -> dict[str, Any]:
     return {"ok": True, "id": room.id}
 
 
+@fastapi_app.get("/api/rooms/{room_id}/peek")
+async def peek_room_endpoint(room_id: str) -> dict[str, Any]:
+    room = rooms.get(room_id)
+    if room is None:
+        raise HTTPException(status_code=404, detail={"ok": False})
+    return {
+        "ok": True,
+        "id": room.id,
+        "users": [
+            {"id": u.id, "name": u.name, "character": u.character, "color": u.color}
+            for u in room.users.values()
+        ],
+    }
+
+
 async def _current_room(sid: str) -> Room | None:
     session = await sio.get_session(sid)
     room_id = session.get("roomId") if session else None
@@ -134,18 +158,15 @@ async def on_join(sid: str, payload: dict[str, Any]) -> dict[str, Any]:
 
     raw_name = str(payload.get("name") or "Guest")[:NAME_MAX].strip()
     safe_name = raw_name or "Guest"
-    safe_char = str(payload.get("character") or "blob-pink")
-
-    if not room.users:
-        bg = str(payload.get("background") or "")[:40]
-        if bg:
-            room.background = bg
+    safe_char = str(payload.get("character") or "chef")[:40]
+    safe_color = str(payload.get("color") or "leaf")[:40]
 
     x, y = random_spawn()
     user = User(
         id=sid,
         name=safe_name,
         character=safe_char,
+        color=safe_color,
         x=x,
         y=y,
         direction="right",
@@ -159,7 +180,7 @@ async def on_join(sid: str, payload: dict[str, Any]) -> dict[str, Any]:
             "users": [asdict(u) for u in room.users.values()],
             "messages": [asdict(m) for m in room.messages],
             "room": {"width": ROOM_WIDTH, "height": ROOM_HEIGHT},
-            "background": room.background,
+            "ambient": asdict(room.ambient),
             "playback": _playback_snapshot(room),
         },
         to=sid,
@@ -257,16 +278,51 @@ async def on_update_playback(sid: str, payload: dict[str, Any]) -> None:
     )
 
 
-@sio.on("updateBackground")
-async def on_update_background(sid: str, payload: dict[str, Any]) -> None:
+@sio.on("updateColor")
+async def on_update_color(sid: str, payload: dict[str, Any]) -> None:
     room = await _current_room(sid)
     if room is None:
         return
-    bg = str(payload.get("background") or "")[:40]
-    if not bg or bg == room.background:
+    user = room.users.get(sid)
+    if user is None:
         return
-    room.background = bg
-    await sio.emit("backgroundChanged", {"background": bg}, room=room.id)
+    color = str(payload.get("color") or "")[:40]
+    if not color:
+        return
+    user.color = color
+    await sio.emit(
+        "userUpdated",
+        {"id": sid, "color": color},
+        room=room.id,
+    )
+
+
+_AMBIENT_TIMES = {"dawn", "day", "dusk", "night"}
+_AMBIENT_WEATHERS = {"clear", "rain", "snow", "fog"}
+_AMBIENT_ROOMS = {"clearing", "plaza"}
+
+
+@sio.on("updateAmbient")
+async def on_update_ambient(sid: str, payload: dict[str, Any]) -> None:
+    room = await _current_room(sid)
+    if room is None:
+        return
+    changed = False
+    t = payload.get("time")
+    if isinstance(t, str) and t in _AMBIENT_TIMES and t != room.ambient.time:
+        room.ambient.time = t
+        changed = True
+    w = payload.get("weather")
+    if isinstance(w, str) and w in _AMBIENT_WEATHERS and w != room.ambient.weather:
+        room.ambient.weather = w
+        changed = True
+    r = payload.get("room")
+    if isinstance(r, str) and r in _AMBIENT_ROOMS and r != room.ambient.room:
+        room.ambient.room = r
+        changed = True
+    if not changed:
+        return
+    await sio.emit("ambientChanged", asdict(room.ambient), room=room.id)
 
 
 @sio.on("chat")
@@ -285,6 +341,7 @@ async def on_chat(sid: str, payload: dict[str, Any]) -> None:
         userId=user.id,
         name=user.name,
         character=user.character,
+        color=user.color,
         text=text,
         timestamp=int(time.time() * 1000),
     )

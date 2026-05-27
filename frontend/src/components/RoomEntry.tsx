@@ -1,33 +1,30 @@
 import { useEffect, useRef, useState } from 'react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { API_BASE } from '../api';
 import { socket } from '../socket';
 import Room from './Room';
-import SetupForm from './SetupForm';
-import ThemePicker from './ThemePicker';
-import type { BackgroundId, CharacterId, ThemeId } from '../types';
+import {
+  CenterMessage,
+  type Identity,
+  JoiningScreen,
+  type OccupantPeek,
+  SetupScreen,
+} from './Screens';
 
-interface RoomEntryProps {
-  theme: ThemeId;
-  onThemeChange: (id: ThemeId) => void;
-  background: BackgroundId;
-  onBackgroundChange: (id: BackgroundId) => void;
-}
+const ME_KEY = 'cya:identity:v2';
 
-interface Me {
-  name: string;
-  character: CharacterId;
-}
-
-const ME_KEY = 'cya:me';
-
-function loadStoredMe(): Me | null {
+function loadIdentity(): Identity | null {
   try {
     const raw = localStorage.getItem(ME_KEY);
     if (!raw) return null;
     const parsed = JSON.parse(raw);
-    if (typeof parsed?.name === 'string' && typeof parsed?.character === 'string') {
-      return { name: parsed.name, character: parsed.character };
+    if (
+      parsed &&
+      typeof parsed.name === 'string' &&
+      typeof parsed.color === 'string' &&
+      typeof parsed.character === 'string'
+    ) {
+      return parsed as Identity;
     }
   } catch {
     // ignore
@@ -35,7 +32,7 @@ function loadStoredMe(): Me | null {
   return null;
 }
 
-function persistMe(me: Me) {
+function saveIdentity(me: Identity) {
   try {
     localStorage.setItem(ME_KEY, JSON.stringify(me));
   } catch {
@@ -44,23 +41,23 @@ function persistMe(me: Me) {
 }
 
 type RoomCheck = 'checking' | 'ok' | 'not_found';
+type Phase = 'check' | 'setup' | 'joining' | 'room';
 
-export default function RoomEntry({
-  theme,
-  onThemeChange,
-  background,
-  onBackgroundChange,
-}: RoomEntryProps) {
+export default function RoomEntry() {
   const { roomId } = useParams<{ roomId: string }>();
   const navigate = useNavigate();
-  const [roomCheck, setRoomCheck] = useState<RoomCheck>('checking');
-  const [me, setMe] = useState<Me | null>(loadStoredMe);
-  const meRef = useRef<Me | null>(me);
-  meRef.current = me;
-  const backgroundRef = useRef(background);
-  backgroundRef.current = background;
+  const location = useLocation();
+  const fromInvite = !!(location.state as { fromInvite?: boolean } | null)?.fromInvite;
 
-  const ready = roomCheck === 'ok' && me !== null;
+  const [roomCheck, setRoomCheck] = useState<RoomCheck>('checking');
+  const [me, setMe] = useState<Identity | null>(loadIdentity());
+  const [phase, setPhase] = useState<Phase>(() => {
+    if (!loadIdentity()) return 'setup';
+    return fromInvite ? 'room' : 'joining';
+  });
+  const [occupants, setOccupants] = useState<OccupantPeek[] | null>(null);
+  const meRef = useRef(me);
+  meRef.current = me;
 
   useEffect(() => {
     if (!roomId) {
@@ -82,19 +79,22 @@ export default function RoomEntry({
     };
   }, [roomId]);
 
+  // On phase=room, connect socket and join.
   useEffect(() => {
-    if (!ready || !roomId) return;
+    if (phase !== 'room' || !roomId) return;
+    const current = meRef.current;
+    if (!current) return;
 
     function doJoin() {
-      const current = meRef.current;
-      if (!current || !roomId) return;
+      const cm = meRef.current;
+      if (!cm || !roomId) return;
       socket.emit(
         'join',
         {
           roomId,
-          name: current.name,
-          character: current.character,
-          background: backgroundRef.current,
+          name: cm.name,
+          character: cm.character,
+          color: cm.color,
         },
         (ack) => {
           if (!ack?.ok) setRoomCheck('not_found');
@@ -103,7 +103,6 @@ export default function RoomEntry({
     }
 
     function onDisconnect(reason: string) {
-      // server-initiated disconnect — kick back home so we don't show a frozen room
       if (reason === 'io server disconnect') {
         navigate('/', { replace: true });
       }
@@ -120,86 +119,88 @@ export default function RoomEntry({
       socket.off('disconnect', onDisconnect);
       if (socket.connected) socket.disconnect();
     };
-  }, [ready, roomId, navigate]);
+  }, [phase, roomId, navigate]);
 
-  function handleSetup(name: string, character: CharacterId) {
-    const next = { name, character };
-    persistMe(next);
-    setMe(next);
-  }
-
-  function handleNameChange(newName: string) {
-    const trimmed = newName.trim().slice(0, 20);
-    if (!trimmed) return;
-    setMe((m) => {
-      if (!m) return m;
-      const next = { ...m, name: trimmed };
-      persistMe(next);
-      return next;
-    });
-    socket.emit('updateName', { name: trimmed });
-  }
-
-  function handleCharacterChange(newCharacter: CharacterId) {
-    setMe((m) => {
-      if (!m) return m;
-      const next = { ...m, character: newCharacter };
-      persistMe(next);
-      return next;
-    });
-    socket.emit('updateCharacter', { character: newCharacter });
-  }
+  // Fetch real occupant list for the joining screen.
+  useEffect(() => {
+    if (phase !== 'joining' || roomCheck !== 'ok' || !roomId) return;
+    let cancelled = false;
+    setOccupants(null);
+    fetch(`${API_BASE}/api/rooms/${encodeURIComponent(roomId)}/peek`)
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error('peek failed'))))
+      .then((data: { users: OccupantPeek[] }) => {
+        if (!cancelled) setOccupants(data.users ?? []);
+      })
+      .catch(() => {
+        if (!cancelled) setOccupants([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [phase, roomCheck, roomId]);
 
   if (roomCheck === 'checking') {
     return (
-      <div className="landing">
-        <div className="landing-card">
-          <h1 className="title">cya</h1>
-          <p className="subtitle">checking room…</p>
-        </div>
+      <div className="cya-app">
+        <CenterMessage title="checking room…" subtitle={typeof window !== 'undefined' ? window.location.host : ''} />
       </div>
     );
   }
 
   if (roomCheck === 'not_found') {
     return (
-      <div className="landing">
-        <div className="landing-card">
-          <h1 className="title">cya</h1>
-          <p className="subtitle">this room doesn't exist anymore</p>
-          <Link to="/" className="btn-primary">back home</Link>
-        </div>
+      <div className="cya-app">
+        <CenterMessage title="this room doesn't exist anymore" subtitle={typeof window !== 'undefined' ? window.location.host : ''}>
+          <button type="button" className="btn" onClick={() => navigate('/')}>
+            back home
+          </button>
+        </CenterMessage>
       </div>
     );
   }
 
-  if (!me) {
+  if (phase === 'setup' || !me) {
     return (
-      <div className="landing">
-        <div className="landing-card">
-          <h1 className="title">cya</h1>
-          <p className="subtitle">joining <code>{roomId}</code></p>
-          <SetupForm onSubmit={handleSetup} submitLabel="enter room" />
-          <div className="field">
-            <span>theme</span>
-            <ThemePicker theme={theme} onChange={onThemeChange} />
-          </div>
-        </div>
+      <div className="cya-app">
+        <SetupScreen
+          initial={me}
+          onDone={(next) => {
+            setMe(next);
+            saveIdentity(next);
+            setPhase('joining');
+          }}
+          onCancel={me ? () => setPhase('joining') : undefined}
+          submitLabel={me ? 'save' : 'continue'}
+        />
       </div>
     );
   }
 
-  return (
-    <Room
-      roomId={roomId!}
-      name={me.name}
-      onNameChange={handleNameChange}
-      character={me.character}
-      onCharacterChange={handleCharacterChange}
-      theme={theme}
-      onThemeChange={onThemeChange}
-      background={background}
-      onBackgroundChange={onBackgroundChange}
-    />
-  );
+  if (phase === 'joining' && roomId) {
+    return (
+      <div className="cya-app">
+        <JoiningScreen
+          roomId={roomId}
+          me={me}
+          occupants={occupants}
+          onEnter={() => setPhase('room')}
+          onEditMe={() => setPhase('setup')}
+        />
+      </div>
+    );
+  }
+
+  if (phase === 'room' && roomId && me) {
+    return (
+      <div className="cya-app">
+        <Room
+          roomId={roomId}
+          onEditMe={() => setPhase('setup')}
+          onLeave={() => navigate('/')}
+        />
+      </div>
+    );
+  }
+
+  return null;
 }

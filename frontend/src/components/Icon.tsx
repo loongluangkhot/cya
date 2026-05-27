@@ -1,0 +1,125 @@
+interface IconProps {
+  name:
+    | 'people'
+    | 'chat'
+    | 'music'
+    | 'mood'
+    | 'leave'
+    | 'send'
+    | 'play'
+    | 'pause'
+    | 'next'
+    | 'prev'
+    | 'x'
+    | 'check'
+    | 'gear';
+  size?: number;
+  color?: string;
+}
+
+export default function Icon({ name, size = 18, color = 'currentColor' }: IconProps) {
+  const sw = 1.7;
+  const common = {
+    width: size,
+    height: size,
+    viewBox: '0 0 24 24',
+    fill: 'none',
+    stroke: color,
+    strokeWidth: sw,
+    strokeLinecap: 'round' as const,
+    strokeLinejoin: 'round' as const,
+  };
+  switch (name) {
+    case 'people':
+      return (
+        <svg {...common}>
+          <circle cx="9" cy="9" r="3.2" />
+          <circle cx="17" cy="10.5" r="2.4" />
+          <path d="M3 19c.7-3 3.2-4.5 6-4.5s5.3 1.5 6 4.5" />
+          <path d="M14 18.5c.5-2.2 2.3-3.3 4-3.3 1.4 0 2.4.6 3 1.5" />
+        </svg>
+      );
+    case 'chat':
+      return (
+        <svg {...common}>
+          <path d="M4 5h16v11H9l-5 4z" />
+        </svg>
+      );
+    case 'music':
+      return (
+        <svg {...common}>
+          <path d="M9 18V6l11-2v12" />
+          <circle cx="6.5" cy="18" r="2.5" />
+          <circle cx="17.5" cy="16" r="2.5" />
+        </svg>
+      );
+    case 'mood':
+      return (
+        <svg {...common}>
+          <circle cx="12" cy="12" r="9" />
+          <path d="M9 10h.01M15 10h.01" />
+          <path d="M8.5 14.5c1 1.4 2.4 2 3.5 2s2.5-.6 3.5-2" />
+        </svg>
+      );
+    case 'leave':
+      return (
+        <svg {...common}>
+          <path d="M14 4h4a2 2 0 012 2v12a2 2 0 01-2 2h-4" />
+          <path d="M10 17l-5-5 5-5" />
+          <path d="M5 12h11" />
+        </svg>
+      );
+    case 'send':
+      return (
+        <svg {...common}>
+          <path d="M3 12l18-8-7 18-3-8z" />
+        </svg>
+      );
+    case 'play':
+      return (
+        <svg {...common} fill={color} stroke="none">
+          <path d="M7 5v14l12-7z" />
+        </svg>
+      );
+    case 'pause':
+      return (
+        <svg {...common} fill={color} stroke="none">
+          <rect x="6" y="5" width="4" height="14" />
+          <rect x="14" y="5" width="4" height="14" />
+        </svg>
+      );
+    case 'next':
+      return (
+        <svg {...common} fill={color} stroke="none">
+          <path d="M5 5v14l10-7zM16 5h3v14h-3z" />
+        </svg>
+      );
+    case 'prev':
+      return (
+        <svg {...common} fill={color} stroke="none">
+          <path d="M19 5v14L9 12zM5 5h3v14H5z" />
+        </svg>
+      );
+    case 'x':
+      return (
+        <svg {...common}>
+          <path d="M6 6l12 12M18 6l-12 12" />
+        </svg>
+      );
+    case 'check':
+      return (
+        <svg {...common}>
+          <path d="M5 12l4 4 10-11" />
+        </svg>
+      );
+    case 'gear':
+      return (
+        <svg {...common}>
+          <circle cx="12" cy="12" r="3" />
+          <path d="M19.4 15a1.7 1.7 0 00.3 1.8l.1.1a2 2 0 11-2.8 2.8l-.1-.1a1.7 1.7 0 00-1.8-.3 1.7 1.7 0 00-1 1.5V21a2 2 0 11-4 0v-.1a1.7 1.7 0 00-1.1-1.5 1.7 1.7 0 00-1.8.3l-.1.1a2 2 0 11-2.8-2.8l.1-.1a1.7 1.7 0 00.3-1.8 1.7 1.7 0 00-1.5-1H3a2 2 0 110-4h.1a1.7 1.7 0 001.5-1.1 1.7 1.7 0 00-.3-1.8l-.1-.1a2 2 0 112.8-2.8l.1.1a1.7 1.7 0 001.8.3h.1a1.7 1.7 0 001-1.5V3a2 2 0 114 0v.1a1.7 1.7 0 001 1.5h.1a1.7 1.7 0 001.8-.3l.1-.1a2 2 0 112.8 2.8l-.1.1a1.7 1.7 0 00-.3 1.8v.1a1.7 1.7 0 001.5 1H21a2 2 0 110 4h-.1a1.7 1.7 0 00-1.5 1z" />
+        </svg>
+      );
+    default:
+      return null;
+  }
+}
