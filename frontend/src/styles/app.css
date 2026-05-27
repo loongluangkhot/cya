@@ -441,7 +441,7 @@ input, textarea, select { font-size: 16px; }
   left: 0;
   right: 0;
   z-index: 100;
-  padding: 50px 14px 10px;
+  padding: max(env(safe-area-inset-top, 12px), 12px) 14px 10px;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -678,8 +678,8 @@ input, textarea, select { font-size: 16px; }
 .irc-log {
   position: absolute;
   left: 12px;
-  right: 86px;
-  bottom: 180px;
+  right: 104px;
+  bottom: 140px;
   pointer-events: none;
   z-index: 95;
   display: flex;
@@ -704,10 +704,10 @@ input, textarea, select { font-size: 16px; }
 .dpad {
   position: absolute;
   right: 14px;
-  bottom: 175px;
+  bottom: 130px;
   z-index: 95;
-  width: 60px;
-  height: 60px;
+  width: 84px;
+  height: 84px;
   user-select: none;
   -webkit-user-select: none;
   -webkit-touch-callout: none;
@@ -722,7 +722,7 @@ input, textarea, select { font-size: 16px; }
   align-items: center;
   justify-content: center;
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: 14px;
   font-weight: 700;
   cursor: pointer;
   user-select: none;
@@ -736,11 +736,11 @@ input, textarea, select { font-size: 16px; }
   box-shadow: inset 0 2px 0 rgba(0, 0, 0, 0.35);
   transform: translateY(1px);
 }
-.dpad-up    { left: 20px; top: 0;     width: 20px; height: 20px; }
-.dpad-left  { left: 0;    top: 20px;  width: 20px; height: 20px; }
-.dpad-core  { left: 20px; top: 20px;  width: 20px; height: 20px; background: var(--fg); position: absolute; }
-.dpad-right { left: 40px; top: 20px;  width: 20px; height: 20px; }
-.dpad-down  { left: 20px; top: 40px;  width: 20px; height: 20px; }
+.dpad-up    { left: 28px; top: 0;     width: 28px; height: 28px; }
+.dpad-left  { left: 0;    top: 28px;  width: 28px; height: 28px; }
+.dpad-core  { left: 28px; top: 28px;  width: 28px; height: 28px; background: var(--fg); position: absolute; }
+.dpad-right { left: 56px; top: 28px;  width: 28px; height: 28px; }
+.dpad-down  { left: 28px; top: 56px;  width: 28px; height: 28px; }
 
 /* Bottom dock */
 .dock {
@@ -749,7 +749,7 @@ input, textarea, select { font-size: 16px; }
   right: 0;
   bottom: 0;
   z-index: 100;
-  padding: 24px 12px 40px;
+  padding: 20px 12px max(env(safe-area-inset-bottom, 10px), 10px);
   background: linear-gradient(0deg, var(--bg) 0%, var(--bg) 60%, transparent 100%);
 }
 .dock-chips {
@@ -854,7 +854,7 @@ input, textarea, select { font-size: 16px; }
   position: absolute;
   left: 0;
   right: 0;
-  top: 105px;
+  top: calc(max(env(safe-area-inset-top, 12px), 12px) + 60px);
   z-index: 200;
   display: flex;
   flex-direction: column;
