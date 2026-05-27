@@ -1147,3 +1147,14 @@ input, textarea, select { font-size: 16px; }
 
 /* Hide text underline links inside the cya-app surface; we use explicit chips/buttons */
 .cya-app a { text-decoration: none; }
+
+/* Setup overlay — full-bleed sheet that sits on top of room/joining
+   while editing identity, so we don't tear down the active socket
+   connection or scene. */
+.setup-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 400;
+  background: var(--bg);
+  overflow: hidden;
+}

@@ -40,8 +40,16 @@ function saveIdentity(me: Identity) {
   }
 }
 
+function emitIdentityDiff(prev: Identity, next: Identity) {
+  if (prev.name !== next.name) socket.emit('updateName', { name: next.name });
+  if (prev.character !== next.character) {
+    socket.emit('updateCharacter', { character: next.character });
+  }
+  if (prev.color !== next.color) socket.emit('updateColor', { color: next.color });
+}
+
 type RoomCheck = 'checking' | 'ok' | 'not_found';
-type Phase = 'check' | 'setup' | 'joining' | 'room';
+type Phase = 'joining' | 'room';
 
 export default function RoomEntry() {
   const { roomId } = useParams<{ roomId: string }>();
@@ -51,10 +59,8 @@ export default function RoomEntry() {
 
   const [roomCheck, setRoomCheck] = useState<RoomCheck>('checking');
   const [me, setMe] = useState<Identity | null>(loadIdentity());
-  const [phase, setPhase] = useState<Phase>(() => {
-    if (!loadIdentity()) return 'setup';
-    return fromInvite ? 'room' : 'joining';
-  });
+  const [phase, setPhase] = useState<Phase>(fromInvite ? 'room' : 'joining');
+  const [editing, setEditing] = useState(false);
   const [occupants, setOccupants] = useState<OccupantPeek[] | null>(null);
   const meRef = useRef(me);
   meRef.current = me;
@@ -79,11 +85,9 @@ export default function RoomEntry() {
     };
   }, [roomId]);
 
-  // On phase=room, connect socket and join.
+  // Connect socket once we're in the room phase.
   useEffect(() => {
-    if (phase !== 'room' || !roomId) return;
-    const current = meRef.current;
-    if (!current) return;
+    if (phase !== 'room' || !roomId || !meRef.current) return;
 
     function doJoin() {
       const cm = meRef.current;
@@ -121,7 +125,7 @@ export default function RoomEntry() {
     };
   }, [phase, roomId, navigate]);
 
-  // Fetch real occupant list for the joining screen.
+  // Fetch occupant list for the joining screen.
   useEffect(() => {
     if (phase !== 'joining' || roomCheck !== 'ok' || !roomId) return;
     let cancelled = false;
@@ -139,10 +143,12 @@ export default function RoomEntry() {
     };
   }, [phase, roomCheck, roomId]);
 
+  const host = typeof window !== 'undefined' ? window.location.host : '';
+
   if (roomCheck === 'checking') {
     return (
       <div className="cya-app">
-        <CenterMessage title="checking room…" subtitle={typeof window !== 'undefined' ? window.location.host : ''} />
+        <CenterMessage title="checking room…" subtitle={host} />
       </div>
     );
   }
@@ -150,7 +156,7 @@ export default function RoomEntry() {
   if (roomCheck === 'not_found') {
     return (
       <div className="cya-app">
-        <CenterMessage title="this room doesn't exist anymore" subtitle={typeof window !== 'undefined' ? window.location.host : ''}>
+        <CenterMessage title="this room doesn't exist anymore" subtitle={host}>
           <button type="button" className="btn" onClick={() => navigate('/')}>
             back home
           </button>
@@ -159,48 +165,56 @@ export default function RoomEntry() {
     );
   }
 
-  if (phase === 'setup' || !me) {
+  // First-time setup — no stored identity yet.
+  if (!me) {
     return (
       <div className="cya-app">
         <SetupScreen
-          initial={me}
+          initial={null}
           onDone={(next) => {
             setMe(next);
             saveIdentity(next);
             setPhase('joining');
           }}
-          onCancel={me ? () => setPhase('joining') : undefined}
-          submitLabel={me ? 'save' : 'continue'}
+          submitLabel="continue"
         />
       </div>
     );
   }
 
-  if (phase === 'joining' && roomId) {
-    return (
-      <div className="cya-app">
+  return (
+    <div className="cya-app">
+      {phase === 'joining' && roomId && (
         <JoiningScreen
           roomId={roomId}
           me={me}
           occupants={occupants}
           onEnter={() => setPhase('room')}
-          onEditMe={() => setPhase('setup')}
+          onEditMe={() => setEditing(true)}
         />
-      </div>
-    );
-  }
-
-  if (phase === 'room' && roomId && me) {
-    return (
-      <div className="cya-app">
+      )}
+      {phase === 'room' && roomId && (
         <Room
           roomId={roomId}
-          onEditMe={() => setPhase('setup')}
+          onEditMe={() => setEditing(true)}
           onLeave={() => navigate('/')}
         />
-      </div>
-    );
-  }
-
-  return null;
+      )}
+      {editing && (
+        <div className="setup-overlay">
+          <SetupScreen
+            initial={me}
+            onDone={(next) => {
+              if (phase === 'room') emitIdentityDiff(me, next);
+              setMe(next);
+              saveIdentity(next);
+              setEditing(false);
+            }}
+            onCancel={() => setEditing(false)}
+            submitLabel="save"
+          />
+        </div>
+      )}
+    </div>
+  );
 }
