@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import asyncio
 import random
 import time
 import uuid
+from collections.abc import Mapping
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
@@ -12,6 +14,23 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, PlainTextResponse
 
+from payloads import (
+    AMBIENT_ROOMS,
+    AMBIENT_TIMES,
+    AMBIENT_WEATHERS,
+    AddToQueuePayload,
+    AdvanceQueuePayload,
+    ChatPayload,
+    JoinPayload,
+    MovePayload,
+    PlaybackSnapshot,
+    RemoveFromQueuePayload,
+    UpdateAmbientPayload,
+    UpdateCharacterPayload,
+    UpdateColorPayload,
+    UpdateNamePayload,
+    UpdatePlaybackPayload,
+)
 from words import generate_slug
 
 ROOM_WIDTH = 1280
@@ -19,8 +38,19 @@ ROOM_HEIGHT = 720
 MAX_HISTORY = 100
 NAME_MAX = 20
 MSG_MAX = 200
+# Grace window after the last user disconnects before the room is evicted.
+# Long enough that the Spotify OAuth round-trip (redirect → consent →
+# callback → reconnect) doesn't lose the room.
+ROOM_GRACE_S = 90
 
 
+# Wire shapes — these dataclasses round-trip through dataclasses.asdict()
+# straight into socket.io payloads, so the fields here must match the
+# matching TypeScript interfaces in frontend/src/types.ts (look for the
+# `@sync: backend/main.py:<Name>` markers there).
+
+
+# @sync: frontend/src/types.ts:User
 @dataclass
 class User:
     id: str
@@ -32,6 +62,7 @@ class User:
     direction: str
 
 
+# @sync: frontend/src/types.ts:ChatMessage
 @dataclass
 class ChatMessage:
     id: str
@@ -43,6 +74,7 @@ class ChatMessage:
     timestamp: int
 
 
+# @sync: frontend/src/types.ts:Ambient
 @dataclass
 class Ambient:
     time: str = "dawn"
@@ -60,12 +92,12 @@ class Room:
     is_playing: bool = False
     position_ms: int = 0
     position_updated_at: float = 0.0
-    queue: list[str] = field(default_factory=list)
-    users: dict[str, User] = field(default_factory=dict)
-    messages: list[ChatMessage] = field(default_factory=list)
+    queue: list[str] = field(default_factory=list[str])
+    users: dict[str, User] = field(default_factory=dict[str, User])
+    messages: list[ChatMessage] = field(default_factory=list[ChatMessage])
 
 
-def _playback_snapshot(room: Room) -> dict[str, Any]:
+def _playback_snapshot(room: Room) -> PlaybackSnapshot:
     return {
         "trackUri": room.track_uri,
         "isPlaying": room.is_playing,
@@ -74,7 +106,66 @@ def _playback_snapshot(room: Room) -> dict[str, Any]:
     }
 
 
+def _safe_string(
+    payload: Mapping[str, Any],
+    key: str,
+    *,
+    default: str = "",
+    max_len: int = 40,
+    strip: bool = False,
+) -> str:
+    raw = str(payload.get(key) or default)[:max_len]
+    return raw.strip() if strip else raw
+
+
+def _safe_int(
+    payload: Mapping[str, Any],
+    key: str,
+    *,
+    default: int = 0,
+    lo: int | None = None,
+    hi: int | None = None,
+) -> int:
+    try:
+        n = int(payload.get(key) or default)
+    except (TypeError, ValueError):
+        n = default
+    if lo is not None:
+        n = max(lo, n)
+    if hi is not None:
+        n = min(hi, n)
+    return n
+
+
+def _safe_float(payload: Mapping[str, Any], key: str, default: float = 0.0) -> float:
+    try:
+        return float(payload.get(key) or default)
+    except (TypeError, ValueError):
+        return default
+
+
 rooms: dict[str, Room] = {}
+# Eviction tasks scheduled when a room empties. A late join cancels the
+# task and the room survives; otherwise it fires after ROOM_GRACE_S and
+# pops the room from `rooms`.
+_pending_evictions: dict[str, asyncio.Task[None]] = {}
+
+
+async def _evict_room_later(room_id: str) -> None:
+    try:
+        await asyncio.sleep(ROOM_GRACE_S)
+    except asyncio.CancelledError:
+        return
+    _pending_evictions.pop(room_id, None)
+    room = rooms.get(room_id)
+    if room is not None and not room.users:
+        rooms.pop(room_id, None)
+
+
+def _cancel_pending_eviction(room_id: str) -> None:
+    task = _pending_evictions.pop(room_id, None)
+    if task is not None:
+        task.cancel()
 
 
 def create_room() -> Room:
@@ -149,20 +240,47 @@ async def _current_room(sid: str) -> Room | None:
     return rooms.get(room_id)
 
 
+async def _update_user_field(
+    sid: str,
+    payload: Mapping[str, Any],
+    key: str,
+    *,
+    max_len: int,
+    strip: bool = False,
+) -> None:
+    """Sanitize a payload string and assign it to user.<key>, then broadcast."""
+    room = await _current_room(sid)
+    if room is None:
+        return
+    user = room.users.get(sid)
+    if user is None:
+        return
+    safe = _safe_string(payload, key, max_len=max_len, strip=strip)
+    if not safe:
+        return
+    setattr(user, key, safe)
+    await sio.emit("userUpdated", {"id": sid, key: safe}, room=room.id)
+
+
 @sio.on("join")
-async def on_join(sid: str, payload: dict[str, Any]) -> dict[str, Any]:
+async def on_join(sid: str, payload: JoinPayload) -> dict[str, Any]:
     room_id = str(payload.get("roomId") or "")
     room = rooms.get(room_id)
     if room is None:
         return {"ok": False, "error": "room_not_found"}
 
+    # Reconnecting before the grace window expires keeps the room alive.
+    _cancel_pending_eviction(room.id)
+
     await sio.save_session(sid, {"roomId": room.id})
     await sio.enter_room(sid, room.id)
 
-    raw_name = str(payload.get("name") or "Guest")[:NAME_MAX].strip()
-    safe_name = raw_name or "Guest"
-    safe_char = str(payload.get("character") or "chef")[:40]
-    safe_color = str(payload.get("color") or "leaf")[:40]
+    safe_name = (
+        _safe_string(payload, "name", default="Guest", max_len=NAME_MAX, strip=True)
+        or "Guest"
+    )
+    safe_char = _safe_string(payload, "character", default="chef", max_len=40)
+    safe_color = _safe_string(payload, "color", default="leaf", max_len=40)
 
     x, y = random_spawn()
     user = User(
@@ -194,20 +312,15 @@ async def on_join(sid: str, payload: dict[str, Any]) -> dict[str, Any]:
 
 
 @sio.on("move")
-async def on_move(sid: str, payload: dict[str, Any]) -> None:
+async def on_move(sid: str, payload: MovePayload) -> None:
     room = await _current_room(sid)
     if room is None:
         return
     user = room.users.get(sid)
     if user is None:
         return
-    try:
-        x = float(payload.get("x") or 0)
-        y = float(payload.get("y") or 0)
-    except (TypeError, ValueError):
-        return
-    user.x = clamp(x, 0, ROOM_WIDTH)
-    user.y = clamp(y, 0, ROOM_HEIGHT)
+    user.x = clamp(_safe_float(payload, "x"), 0, ROOM_WIDTH)
+    user.y = clamp(_safe_float(payload, "y"), 0, ROOM_HEIGHT)
     direction = payload.get("direction")
     if direction in ("left", "right"):
         user.direction = direction
@@ -220,41 +333,13 @@ async def on_move(sid: str, payload: dict[str, Any]) -> None:
 
 
 @sio.on("updateCharacter")
-async def on_update_character(sid: str, payload: dict[str, Any]) -> None:
-    room = await _current_room(sid)
-    if room is None:
-        return
-    user = room.users.get(sid)
-    if user is None:
-        return
-    safe = str(payload.get("character") or "")[:40]
-    if not safe:
-        return
-    user.character = safe
-    await sio.emit(
-        "userUpdated",
-        {"id": sid, "character": user.character},
-        room=room.id,
-    )
+async def on_update_character(sid: str, payload: UpdateCharacterPayload) -> None:
+    await _update_user_field(sid, payload, "character", max_len=40)
 
 
 @sio.on("updateName")
-async def on_update_name(sid: str, payload: dict[str, Any]) -> None:
-    room = await _current_room(sid)
-    if room is None:
-        return
-    user = room.users.get(sid)
-    if user is None:
-        return
-    safe = str(payload.get("name") or "")[:NAME_MAX].strip()
-    if not safe:
-        return
-    user.name = safe
-    await sio.emit(
-        "userUpdated",
-        {"id": sid, "name": user.name},
-        room=room.id,
-    )
+async def on_update_name(sid: str, payload: UpdateNamePayload) -> None:
+    await _update_user_field(sid, payload, "name", max_len=NAME_MAX, strip=True)
 
 
 def _clean_uri(raw: Any) -> str | None:
@@ -267,7 +352,7 @@ def _clean_uri(raw: Any) -> str | None:
 
 
 @sio.on("updatePlayback")
-async def on_update_playback(sid: str, payload: dict[str, Any]) -> None:
+async def on_update_playback(sid: str, payload: UpdatePlaybackPayload) -> None:
     room = await _current_room(sid)
     if room is None:
         return
@@ -278,10 +363,7 @@ async def on_update_playback(sid: str, payload: dict[str, Any]) -> None:
         track_uri = _clean_uri(raw_uri)
     room.track_uri = track_uri
     room.is_playing = bool(payload.get("isPlaying", False))
-    try:
-        room.position_ms = max(0, int(payload.get("positionMs") or 0))
-    except (TypeError, ValueError):
-        room.position_ms = 0
+    room.position_ms = _safe_int(payload, "positionMs", lo=0)
     room.position_updated_at = time.time() * 1000
     await sio.emit(
         "playbackChanged",
@@ -292,7 +374,7 @@ async def on_update_playback(sid: str, payload: dict[str, Any]) -> None:
 
 
 @sio.on("addToQueue")
-async def on_add_to_queue(sid: str, payload: dict[str, Any]) -> None:
+async def on_add_to_queue(sid: str, payload: AddToQueuePayload) -> None:
     room = await _current_room(sid)
     if room is None:
         return
@@ -306,7 +388,7 @@ async def on_add_to_queue(sid: str, payload: dict[str, Any]) -> None:
 
 
 @sio.on("removeFromQueue")
-async def on_remove_from_queue(sid: str, payload: dict[str, Any]) -> None:
+async def on_remove_from_queue(sid: str, payload: RemoveFromQueuePayload) -> None:
     room = await _current_room(sid)
     if room is None:
         return
@@ -338,7 +420,7 @@ async def on_clear_queue(sid: str, *_args: Any) -> None:
 
 
 @sio.on("advanceQueue")
-async def on_advance_queue(sid: str, payload: dict[str, Any]) -> None:
+async def on_advance_queue(sid: str, payload: AdvanceQueuePayload) -> None:
     room = await _current_room(sid)
     if room is None:
         return
@@ -365,50 +447,30 @@ async def on_advance_queue(sid: str, payload: dict[str, Any]) -> None:
 
 
 @sio.on("updateColor")
-async def on_update_color(sid: str, payload: dict[str, Any]) -> None:
-    room = await _current_room(sid)
-    if room is None:
-        return
-    user = room.users.get(sid)
-    if user is None:
-        return
-    color = str(payload.get("color") or "")[:40]
-    if not color:
-        return
-    user.color = color
-    await sio.emit(
-        "userUpdated",
-        {"id": sid, "color": color},
-        room=room.id,
-    )
-
-
-_AMBIENT_TIMES = {"dawn", "day", "dusk", "night"}
-_AMBIENT_WEATHERS = {"clear", "rain", "snow", "fog"}
-_AMBIENT_ROOMS = {"clearing", "plaza"}
+async def on_update_color(sid: str, payload: UpdateColorPayload) -> None:
+    await _update_user_field(sid, payload, "color", max_len=40)
 
 
 @sio.on("updateAmbient")
-async def on_update_ambient(sid: str, payload: dict[str, Any]) -> None:
+async def on_update_ambient(sid: str, payload: UpdateAmbientPayload) -> None:
     room = await _current_room(sid)
     if room is None:
         return
     changed = False
     t = payload.get("time")
-    if isinstance(t, str) and t in _AMBIENT_TIMES and t != room.ambient.time:
+    if isinstance(t, str) and t in AMBIENT_TIMES and t != room.ambient.time:
         room.ambient.time = t
         changed = True
     w = payload.get("weather")
-    if isinstance(w, str) and w in _AMBIENT_WEATHERS and w != room.ambient.weather:
+    if isinstance(w, str) and w in AMBIENT_WEATHERS and w != room.ambient.weather:
         room.ambient.weather = w
         changed = True
     r = payload.get("room")
-    if isinstance(r, str) and r in _AMBIENT_ROOMS and r != room.ambient.room:
+    if isinstance(r, str) and r in AMBIENT_ROOMS and r != room.ambient.room:
         room.ambient.room = r
         changed = True
-    i = payload.get("intensity")
-    if isinstance(i, (int, float)):
-        clamped = max(0, min(100, int(i)))
+    if "intensity" in payload and payload["intensity"] is not None:
+        clamped = _safe_int(payload, "intensity", default=room.ambient.intensity, lo=0, hi=100)
         if clamped != room.ambient.intensity:
             room.ambient.intensity = clamped
             changed = True
@@ -418,14 +480,14 @@ async def on_update_ambient(sid: str, payload: dict[str, Any]) -> None:
 
 
 @sio.on("chat")
-async def on_chat(sid: str, payload: dict[str, Any]) -> None:
+async def on_chat(sid: str, payload: ChatPayload) -> None:
     room = await _current_room(sid)
     if room is None:
         return
     user = room.users.get(sid)
     if user is None:
         return
-    text = str(payload.get("text") or "")[:MSG_MAX].strip()
+    text = _safe_string(payload, "text", max_len=MSG_MAX, strip=True)
     if not text:
         return
     message = ChatMessage(
@@ -452,6 +514,12 @@ async def on_disconnect(sid: str) -> None:
         return
     del room.users[sid]
     await sio.emit("userLeft", {"id": sid}, room=room.id)
+    # Schedule an eviction so empty rooms don't accumulate, but leave a
+    # grace window so a quick redirect-out-and-back (e.g. Spotify OAuth)
+    # doesn't blow the room away before the user returns. A late join
+    # cancels the task in on_join().
+    if not room.users and room.id not in _pending_evictions:
+        _pending_evictions[room.id] = asyncio.create_task(_evict_room_later(room.id))
 
 
 CLIENT_DIST = Path(__file__).resolve().parent.parent / "client" / "dist"

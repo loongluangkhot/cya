@@ -6,6 +6,15 @@
 //   - localStorage holds the resulting token set, so the user stays
 //     connected across reloads.
 
+import {
+  safeLocalGetJSON,
+  safeLocalRemove,
+  safeLocalSetJSON,
+  safeSessionGet,
+  safeSessionRemove,
+  safeSessionSet,
+} from './storage';
+
 const CLIENT_ID = import.meta.env.VITE_SPOTIFY_CLIENT_ID;
 const AUTH_URL = 'https://accounts.spotify.com/authorize';
 const TOKEN_URL = 'https://accounts.spotify.com/api/token';
@@ -36,38 +45,24 @@ export function getRedirectUri(): string {
 }
 
 function loadTokenSet(): SpotifyTokenSet | null {
-  try {
-    const raw = localStorage.getItem(TOKEN_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw);
-    if (
-      parsed &&
-      typeof parsed.access_token === 'string' &&
-      typeof parsed.refresh_token === 'string' &&
-      typeof parsed.expires_at === 'number'
-    ) {
-      return parsed as SpotifyTokenSet;
-    }
-  } catch {
-    // ignore
+  const parsed = safeLocalGetJSON<SpotifyTokenSet>(TOKEN_KEY);
+  if (
+    parsed &&
+    typeof parsed.access_token === 'string' &&
+    typeof parsed.refresh_token === 'string' &&
+    typeof parsed.expires_at === 'number'
+  ) {
+    return parsed;
   }
   return null;
 }
 
 function storeTokenSet(tok: SpotifyTokenSet) {
-  try {
-    localStorage.setItem(TOKEN_KEY, JSON.stringify(tok));
-  } catch {
-    // ignore
-  }
+  safeLocalSetJSON(TOKEN_KEY, tok);
 }
 
 export function clearSpotifyToken() {
-  try {
-    localStorage.removeItem(TOKEN_KEY);
-  } catch {
-    // ignore
-  }
+  safeLocalRemove(TOKEN_KEY);
 }
 
 export function hasSpotifyToken(): boolean {
@@ -111,8 +106,8 @@ export async function beginSpotifyLogin(opts: { returnTo?: string; forceConsent?
   }
   const verifier = generateVerifier();
   const challenge = await codeChallenge(verifier);
-  sessionStorage.setItem(VERIFIER_KEY, verifier);
-  sessionStorage.setItem(
+  safeSessionSet(VERIFIER_KEY, verifier);
+  safeSessionSet(
     RETURN_KEY,
     opts.returnTo ?? window.location.pathname + window.location.search,
   );
@@ -137,13 +132,13 @@ export async function handleSpotifyCallback(
   if (!CLIENT_ID) {
     return { ok: false, error: 'VITE_SPOTIFY_CLIENT_ID not configured' };
   }
-  const verifier = sessionStorage.getItem(VERIFIER_KEY);
+  const verifier = safeSessionGet(VERIFIER_KEY);
   if (!verifier) {
     return { ok: false, error: 'missing PKCE verifier — please try again' };
   }
-  const returnTo = sessionStorage.getItem(RETURN_KEY) || '/';
-  sessionStorage.removeItem(VERIFIER_KEY);
-  sessionStorage.removeItem(RETURN_KEY);
+  const returnTo = safeSessionGet(RETURN_KEY) || '/';
+  safeSessionRemove(VERIFIER_KEY);
+  safeSessionRemove(RETURN_KEY);
 
   const body = new URLSearchParams({
     grant_type: 'authorization_code',

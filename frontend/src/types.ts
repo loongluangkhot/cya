@@ -20,10 +20,16 @@ export type ColorId =
   | 'plum'
   | 'fog';
 
+// @sync: backend/payloads.py:AMBIENT_TIMES / AMBIENT_WEATHERS / AMBIENT_ROOMS
 export type AmbientTime = 'dawn' | 'day' | 'dusk' | 'night';
 export type AmbientWeather = 'clear' | 'rain' | 'snow' | 'fog';
 export type AmbientRoom = 'clearing' | 'plaza';
 
+// Keep in sync with backend/main.py — the @dataclass definitions there
+// emit (via dataclasses.asdict) directly into the socket.io payloads
+// below, so adding/removing a field must be done in both places.
+
+// @sync: backend/main.py:Ambient
 export interface Ambient {
   time: AmbientTime;
   weather: AmbientWeather;
@@ -32,6 +38,7 @@ export interface Ambient {
   intensity: number;
 }
 
+// @sync: backend/main.py:User
 export interface User {
   id: string;
   name: string;
@@ -42,6 +49,7 @@ export interface User {
   direction: Direction;
 }
 
+// @sync: backend/main.py:ChatMessage
 export interface ChatMessage {
   id: string;
   userId: string;
@@ -57,6 +65,7 @@ export interface RoomDimensions {
   height: number;
 }
 
+// @sync: backend/main.py:_playback_snapshot
 export interface PlaybackState {
   trackUri: string | null;
   isPlaying: boolean;

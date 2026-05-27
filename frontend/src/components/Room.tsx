@@ -6,44 +6,24 @@ import {
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from 'react';
-import { socket } from '../socket';
 import IsoScene from './IsoScene';
 import PixelCharacter from './PixelCharacter';
 import SpotifyPlayer from './SpotifyPlayer';
 import ErrorBoundary from './ErrorBoundary';
 import Icon from './Icon';
 import { colorHex } from '../characters';
+import { useToasts } from '../hooks/useToasts';
+import { useRoomState } from '../hooks/useRoomState';
+import { useMovement } from '../hooks/useMovement';
 import type {
   Ambient,
   AmbientRoom,
   AmbientTime,
   AmbientWeather,
-  BubbleState,
-  CharacterId,
   ChatMessage,
-  ColorId,
   PlaybackState,
   User,
 } from '../types';
-
-const EMPTY_PLAYBACK: PlaybackState = {
-  trackUri: null,
-  isPlaying: false,
-  positionMs: 0,
-  positionUpdatedAt: 0,
-};
-
-// Room is 1280×720 on the server. We map server coords to the iso scene's
-// 0..100 percent on the floor.
-const SERVER_W = 1280;
-const SERVER_H = 720;
-const STEP_PCT = 4;
-const SEND_INTERVAL_MS = 60;
-const BUBBLE_MS = 4500;
-
-// Iso floor area where the character can stand (with a margin).
-const MIN_PCT = 6;
-const MAX_PCT = 94;
 
 interface RoomProps {
   roomId: string;
@@ -54,381 +34,34 @@ interface RoomProps {
 type Sheet = 'people' | 'chat' | 'music' | 'ambience' | null;
 
 export default function Room({ roomId, onEditMe, onLeave }: RoomProps) {
-  const [meId, setMeId] = useState<string | null>(null);
-  const [users, setUsers] = useState<User[]>([]);
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
-  const [bubbles, setBubbles] = useState<Record<string, BubbleState>>({});
-  const [ambient, setAmbient] = useState<Ambient>({
-    time: 'dawn',
-    weather: 'clear',
-    room: 'clearing',
-    intensity: 70,
-  });
-  const [playback, setPlayback] = useState<PlaybackState>(EMPTY_PLAYBACK);
-  const [queue, setQueue] = useState<string[]>([]);
+  const { toasts, pushToast } = useToasts();
+  const {
+    meId,
+    users,
+    setUsers,
+    messages,
+    bubbles,
+    ambient,
+    playback,
+    queue,
+    trackMeta,
+    sendMessage,
+    changeAmbient,
+    changePlayback,
+    addToQueue,
+    removeFromQueue,
+    advanceQueue,
+    clearQueue,
+  } = useRoomState({ onToast: pushToast });
+  const { nudge, wandering, setWandering } = useMovement({ meId, users, setUsers });
+
   const [sheet, setSheet] = useState<Sheet>(null);
   const [draft, setDraft] = useState('');
-  // Per-uri title + art cache for the dock chip. Populated via Spotify's
-  // oEmbed endpoint (no auth required) so the chip can render even for
-  // users who haven't connected Spotify.
-  const [trackMeta, setTrackMeta] = useState<Record<string, { art: string; title: string }>>({});
-  const [toasts, setToasts] = useState<{ id: string; text: string }[]>([]);
-  const [wandering, setWandering] = useState(false);
 
-  function pushToast(text: string) {
-    const id = Math.random().toString(36).slice(2);
-    setToasts((prev) => [...prev, { id, text }]);
-    window.setTimeout(() => {
-      setToasts((prev) => prev.filter((t) => t.id !== id));
-    }, 3200);
-  }
-
-  const posRef = useRef({ x: 50, y: 50 });
-  const keysRef = useRef<Set<string>>(new Set());
-  // Tracks the last trackUri we toasted for, so the now-playing notification
-  // doesn't double-fire under React Strict Mode's double-invoke of updaters.
-  const lastToastedTrackRef = useRef<string | null>(null);
-
-  // ────────────── Socket wiring ──────────────
-  useEffect(() => {
-    function onState(payload: {
-      you: User;
-      users: User[];
-      messages: ChatMessage[];
-      ambient: Ambient;
-      playback: PlaybackState;
-      queue?: string[];
-    }) {
-      setMeId(payload.you.id);
-      const normalized = payload.users.map((u) => ({
-        ...u,
-        x: (u.x / SERVER_W) * 100,
-        y: (u.y / SERVER_H) * 100,
-      }));
-      setUsers(normalized);
-      setMessages(payload.messages ?? []);
-      if (payload.ambient) setAmbient(payload.ambient);
-      if (payload.playback) setPlayback(payload.playback);
-      if (Array.isArray(payload.queue)) setQueue(payload.queue);
-      const meServer = payload.you;
-      posRef.current = {
-        x: (meServer.x / SERVER_W) * 100,
-        y: (meServer.y / SERVER_H) * 100,
-      };
-    }
-    function onUserMoved({ id, x, y }: { id: string; x: number; y: number }) {
-      setUsers((prev) =>
-        prev.map((p) =>
-          p.id === id
-            ? { ...p, x: (x / SERVER_W) * 100, y: (y / SERVER_H) * 100 }
-            : p,
-        ),
-      );
-    }
-    function onUserUpdated(payload: {
-      id: string;
-      character?: CharacterId;
-      name?: string;
-      color?: ColorId;
-    }) {
-      setUsers((prev) =>
-        prev.map((p) => {
-          if (p.id !== payload.id) return p;
-          return {
-            ...p,
-            ...(payload.character !== undefined && { character: payload.character }),
-            ...(payload.name !== undefined && { name: payload.name }),
-            ...(payload.color !== undefined && { color: payload.color }),
-          };
-        }),
-      );
-    }
-    function onChat(msg: ChatMessage) {
-      setMessages((prev) => [...prev, msg].slice(-200));
-      setBubbles((prev) => ({
-        ...prev,
-        [msg.userId]: { text: msg.text, expiresAt: Date.now() + BUBBLE_MS, id: msg.id },
-      }));
-    }
-    function onAmbientChanged(next: Ambient) {
-      setAmbient(next);
-    }
-
-    // Server emits absolute coords; normalize here so peer % positions stay
-    // consistent inside the iso scene.
-    function handleUserJoined(u: User) {
-      const normalized = {
-        ...u,
-        x: (u.x / SERVER_W) * 100,
-        y: (u.y / SERVER_H) * 100,
-      };
-      setUsers((prev) => [...prev.filter((p) => p.id !== u.id), normalized]);
-      if (u.id !== meRef.current) pushToast(`${u.name} joined`);
-    }
-    function handleUserLeft(payload: { id: string }) {
-      // Capture name before we remove from state.
-      let name: string | undefined;
-      setUsers((prev) => {
-        const found = prev.find((p) => p.id === payload.id);
-        name = found?.name;
-        return prev.filter((p) => p.id !== payload.id);
-      });
-      setBubbles((prev) => {
-        if (!prev[payload.id]) return prev;
-        const next = { ...prev };
-        delete next[payload.id];
-        return next;
-      });
-      if (payload.id !== meRef.current && name) pushToast(`${name} left`);
-    }
-    function handlePlaybackChanged(next: PlaybackState) {
-      // Toast outside the setter — putting side effects inside setPlayback
-      // would double-fire under React Strict Mode's double-invoke.
-      if (next.trackUri && next.trackUri !== lastToastedTrackRef.current) {
-        pushToast('now playing · new track');
-      }
-      lastToastedTrackRef.current = next.trackUri;
-      setPlayback(next);
-    }
-
-    function onQueueChanged(payload: { queue: string[] }) {
-      setQueue(payload.queue);
-    }
-
-    socket.on('state', onState as never);
-    socket.on('queueChanged', onQueueChanged);
-    socket.on('userJoined', handleUserJoined);
-    socket.on('userLeft', handleUserLeft);
-    socket.on('userMoved', onUserMoved);
-    socket.on('userUpdated', onUserUpdated);
-    socket.on('chatMessage', onChat);
-    socket.on('ambientChanged', onAmbientChanged);
-    socket.on('playbackChanged', handlePlaybackChanged);
-
-    return () => {
-      socket.off('state', onState as never);
-      socket.off('queueChanged', onQueueChanged);
-      socket.off('userJoined', handleUserJoined);
-      socket.off('userLeft', handleUserLeft);
-      socket.off('userMoved', onUserMoved);
-      socket.off('userUpdated', onUserUpdated);
-      socket.off('chatMessage', onChat);
-      socket.off('ambientChanged', onAmbientChanged);
-      socket.off('playbackChanged', handlePlaybackChanged);
-    };
-  }, []);
-
-  // ────────────── Track metadata (oEmbed) ──────────────
-  useEffect(() => {
-    const uri = playback.trackUri;
-    if (!uri || trackMeta[uri]) return;
-    const id = uri.replace('spotify:track:', '');
-    if (!/^[A-Za-z0-9]{22}$/.test(id)) return;
-    let cancelled = false;
-    const target = `https://open.spotify.com/track/${id}`;
-    fetch(`https://open.spotify.com/oembed?url=${encodeURIComponent(target)}`)
-      .then((r) => (r.ok ? r.json() : null))
-      .then((data) => {
-        if (cancelled || !data) return;
-        const art = typeof data.thumbnail_url === 'string' ? data.thumbnail_url : '';
-        const title = typeof data.title === 'string' ? data.title : '';
-        if (!art && !title) return;
-        setTrackMeta((prev) => ({ ...prev, [uri]: { art, title } }));
-      })
-      .catch(() => {
-        // ignore — chip falls back to defaults
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [playback.trackUri, trackMeta]);
-
-  // ────────────── Bubble expiry ──────────────
-  useEffect(() => {
-    const id = setInterval(() => {
-      setBubbles((prev) => {
-        const now = Date.now();
-        let changed = false;
-        const next: Record<string, BubbleState> = {};
-        for (const [k, v] of Object.entries(prev)) {
-          if (v.expiresAt > now) next[k] = v;
-          else changed = true;
-        }
-        return changed ? next : prev;
-      });
-    }, 500);
-    return () => clearInterval(id);
-  }, []);
-
-  // ────────────── Movement input (arrow keys + D-pad) ──────────────
-  const meRef = useRef<string | null>(null);
-  meRef.current = meId;
-  const lastSentSig = useRef('');
-
-  function nudge(dx: number, dy: number) {
-    if (!meRef.current) return;
-    const cur = posRef.current;
-    const m = dx && dy ? Math.SQRT1_2 : 1;
-    const nx = Math.max(MIN_PCT, Math.min(MAX_PCT, cur.x + dx * STEP_PCT * m));
-    const ny = Math.max(MIN_PCT, Math.min(MAX_PCT, cur.y + dy * STEP_PCT * m));
-    posRef.current = { x: nx, y: ny };
-    setUsers((prev) =>
-      prev.map((p) => (p.id === meRef.current ? { ...p, x: nx, y: ny } : p)),
-    );
-    const sig = `${Math.round(nx)},${Math.round(ny)}`;
-    if (sig !== lastSentSig.current) {
-      lastSentSig.current = sig;
-      socket.emit('move', {
-        x: (nx / 100) * SERVER_W,
-        y: (ny / 100) * SERVER_H,
-        direction: 'right',
-      });
-    }
-  }
-
-  // Wander — picks random floor targets and walks toward them via nudge(),
-  // same as user input so server sync and animation work identically.
-  useEffect(() => {
-    if (!wandering) return;
-    function pickTarget() {
-      return {
-        x: MIN_PCT + 4 + Math.random() * (MAX_PCT - MIN_PCT - 8),
-        y: MIN_PCT + 4 + Math.random() * (MAX_PCT - MIN_PCT - 8),
-      };
-    }
-    let target = pickTarget();
-    let arrivedAt = 0;
-    const id = window.setInterval(() => {
-      const pos = posRef.current;
-      const dx = target.x - pos.x;
-      const dy = target.y - pos.y;
-      const dist = Math.hypot(dx, dy);
-      if (dist < 3) {
-        // Arrived; idle briefly then pick a new spot.
-        if (arrivedAt === 0) arrivedAt = Date.now();
-        if (Date.now() - arrivedAt > 1400) {
-          target = pickTarget();
-          arrivedAt = 0;
-        }
-        return;
-      }
-      arrivedAt = 0;
-      const sx = dx === 0 ? 0 : dx > 0 ? 1 : -1;
-      const sy = dy === 0 ? 0 : dy > 0 ? 1 : -1;
-      nudge(sx, sy);
-    }, 160);
-    return () => window.clearInterval(id);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [wandering]);
-
-  // Arrow key handler — drive our own repeat (avoid OS auto-repeat delay).
-  useEffect(() => {
-    const held = keysRef.current;
-    let timer: number | null = null;
-
-    function tick() {
-      let dx = 0;
-      let dy = 0;
-      if (held.has('ArrowUp')) dy -= 1;
-      if (held.has('ArrowDown')) dy += 1;
-      if (held.has('ArrowLeft')) dx -= 1;
-      if (held.has('ArrowRight')) dx += 1;
-      if (dx || dy) nudge(dx, dy);
-    }
-
-    function down(e: KeyboardEvent) {
-      const target = e.target as HTMLElement | null;
-      const tag = target?.tagName;
-      if (tag === 'INPUT' || tag === 'TEXTAREA') return;
-      if (!['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) return;
-      e.preventDefault();
-      if (e.repeat) return;
-      // Any manual movement cancels wander.
-      setWandering(false);
-      if (!held.has(e.key)) {
-        const first = held.size === 0;
-        held.add(e.key);
-        if (first) {
-          tick();
-          timer = window.setInterval(tick, 130);
-        }
-      }
-    }
-    function up(e: KeyboardEvent) {
-      if (!held.has(e.key)) return;
-      held.delete(e.key);
-      if (held.size === 0 && timer !== null) {
-        clearInterval(timer);
-        timer = null;
-      }
-    }
-    function blur() {
-      held.clear();
-      if (timer !== null) {
-        clearInterval(timer);
-        timer = null;
-      }
-    }
-
-    window.addEventListener('keydown', down);
-    window.addEventListener('keyup', up);
-    window.addEventListener('blur', blur);
-    return () => {
-      window.removeEventListener('keydown', down);
-      window.removeEventListener('keyup', up);
-      window.removeEventListener('blur', blur);
-      if (timer !== null) clearInterval(timer);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // ────────────── Send chat ──────────────
-  function sendMessage(text: string) {
-    const t = text.trim();
-    if (!t) return;
-    socket.emit('chat', { text: t });
+  function onSend(text: string) {
+    if (!text.trim()) return;
+    sendMessage(text);
     setDraft('');
-  }
-
-  function changeAmbient(next: Partial<Ambient>) {
-    setAmbient((cur) => ({ ...cur, ...next }));
-    socket.emit('updateAmbient', next);
-  }
-
-  function changePlayback(next: { trackUri: string | null; isPlaying: boolean; positionMs: number }) {
-    setPlayback({
-      trackUri: next.trackUri,
-      isPlaying: next.isPlaying,
-      positionMs: next.positionMs,
-      positionUpdatedAt: Date.now(),
-    });
-    socket.emit('updatePlayback', next);
-  }
-
-  function addToQueue(uri: string) {
-    setQueue((q) => [...q, uri]);
-    socket.emit('addToQueue', { uri });
-  }
-
-  function removeFromQueue(uri: string, index: number) {
-    setQueue((q) => {
-      if (q[index] === uri) {
-        const next = q.slice();
-        next.splice(index, 1);
-        return next;
-      }
-      return q;
-    });
-    socket.emit('removeFromQueue', { uri, index });
-  }
-
-  function advanceQueueLocal(afterTrackUri: string | null) {
-    socket.emit('advanceQueue', { afterTrackUri });
-  }
-
-  function clearQueueLocal() {
-    setQueue([]);
-    socket.emit('clearQueue');
   }
 
   const peersById: Record<string, User> = Object.fromEntries(users.map((u) => [u.id, u]));
@@ -470,7 +103,7 @@ export default function Room({ roomId, onEditMe, onLeave }: RoomProps) {
         trackTitle={playback.trackUri ? trackMeta[playback.trackUri]?.title : undefined}
         draft={draft}
         setDraft={setDraft}
-        onSend={sendMessage}
+        onSend={onSend}
         onOpenMusic={() => setSheet('music')}
         onOpenAmbience={() => setSheet('ambience')}
         onOpenChat={() => setSheet('chat')}
@@ -499,8 +132,8 @@ export default function Room({ roomId, onEditMe, onLeave }: RoomProps) {
         onPlaybackChange={changePlayback}
         onAddToQueue={addToQueue}
         onRemoveFromQueue={removeFromQueue}
-        onAdvanceQueue={advanceQueueLocal}
-        onClearQueue={clearQueueLocal}
+        onAdvanceQueue={advanceQueue}
+        onClearQueue={clearQueue}
       />
       <AmbienceSheet
         open={sheet === 'ambience'}

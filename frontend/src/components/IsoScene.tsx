@@ -1,13 +1,13 @@
 import { useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
+import { IsoBackdrop } from './IsoBackdrop';
 import {
   ISO_GRID,
   ISO_TILE_H,
   ISO_TILE_W,
   ISO_WALL_H,
-  IsoBackdrop,
   iso,
   isoFromPct,
-} from './IsoBackdrop';
+} from '../iso';
 import PixelCharacter from './PixelCharacter';
 import { colorHex } from '../characters';
 import type { AmbientRoom, BubbleState, User } from '../types';

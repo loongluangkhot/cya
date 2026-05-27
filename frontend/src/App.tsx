@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { Routes, Route, useNavigate } from 'react-router-dom';
 import { API_BASE } from './api';
 import {
@@ -12,35 +12,21 @@ import {
 import RoomEntry from './components/RoomEntry';
 import SpotifyCallback from './components/SpotifyCallback';
 import { markRoomJoined } from './roomState';
+import { useStoredState } from './hooks/useStoredState';
 
 const ME_KEY = 'cya:identity:v2';
 
-function loadIdentity(): Identity | null {
-  try {
-    const raw = localStorage.getItem(ME_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw);
-    if (
-      parsed &&
-      typeof parsed.name === 'string' &&
-      typeof parsed.color === 'string' &&
-      typeof parsed.character === 'string'
-    ) {
-      return parsed as Identity;
-    }
-  } catch {
-    // ignore
+function validateIdentity(parsed: unknown): Identity | null {
+  if (
+    parsed &&
+    typeof parsed === 'object' &&
+    typeof (parsed as Identity).name === 'string' &&
+    typeof (parsed as Identity).color === 'string' &&
+    typeof (parsed as Identity).character === 'string'
+  ) {
+    return parsed as Identity;
   }
   return null;
-}
-
-function saveIdentity(me: Identity | null) {
-  try {
-    if (me) localStorage.setItem(ME_KEY, JSON.stringify(me));
-    else localStorage.removeItem(ME_KEY);
-  } catch {
-    // ignore
-  }
 }
 
 type LandingMode =
@@ -51,16 +37,12 @@ type LandingMode =
 
 function Landing() {
   const navigate = useNavigate();
-  const [me, setMe] = useState<Identity | null>(() => loadIdentity());
+  const [me, setMe] = useStoredState<Identity | null>(ME_KEY, null, validateIdentity);
   const [mode, setMode] = useState<LandingMode>(() =>
-    loadIdentity() ? { kind: 'home' } : { kind: 'splash' },
+    me ? { kind: 'home' } : { kind: 'splash' },
   );
   const [busy, setBusy] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
-
-  useEffect(() => {
-    saveIdentity(me);
-  }, [me]);
 
   async function createRoom(): Promise<string | null> {
     setBusy(true);

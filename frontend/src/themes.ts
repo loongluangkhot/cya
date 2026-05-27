@@ -1,3 +1,5 @@
+import { safeLocalGet, safeLocalSet } from './storage';
+
 // Personal theme presets. Each preset is a coherent set of the five
 // user-controllable tokens (bg, fg, surface, surface-2, muted). Derived
 // tokens (border, accent, scene-*) are computed from these in CSS via
@@ -90,21 +92,13 @@ export function isThemeId(id: string): id is ThemeId {
 }
 
 export function loadTheme(): ThemeId {
-  try {
-    const raw = localStorage.getItem(THEME_STORAGE_KEY);
-    if (raw && isThemeId(raw)) return raw;
-  } catch {
-    // ignore
-  }
+  const raw = safeLocalGet(THEME_STORAGE_KEY);
+  if (raw && isThemeId(raw)) return raw;
   return DEFAULT_THEME;
 }
 
 export function saveTheme(id: ThemeId): void {
-  try {
-    localStorage.setItem(THEME_STORAGE_KEY, id);
-  } catch {
-    // ignore
-  }
+  safeLocalSet(THEME_STORAGE_KEY, id);
 }
 
 export function applyTheme(id: ThemeId): void {

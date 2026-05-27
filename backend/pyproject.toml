@@ -8,3 +8,8 @@ dependencies = [
   "uvicorn[standard]>=0.30",
   "python-socketio>=5.11",
 ]
+
+[dependency-groups]
+dev = [
+    "python-socketio-stubs>=5.16.0.0.20260117",
+]

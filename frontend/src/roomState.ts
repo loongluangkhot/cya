@@ -6,28 +6,18 @@
 // sessionStorage scope is per-tab, so a fresh tab opened to /r/<id> won't
 // inherit the marker — that user genuinely needs to drop in.
 
+import { safeSessionGet, safeSessionRemove, safeSessionSet } from './storage';
+
 const KEY = 'cya:active-room';
 
 export function markRoomJoined(roomId: string) {
-  try {
-    sessionStorage.setItem(KEY, roomId);
-  } catch {
-    // ignore
-  }
+  safeSessionSet(KEY, roomId);
 }
 
 export function clearRoomJoined() {
-  try {
-    sessionStorage.removeItem(KEY);
-  } catch {
-    // ignore
-  }
+  safeSessionRemove(KEY);
 }
 
 export function isCurrentRoom(roomId: string): boolean {
-  try {
-    return sessionStorage.getItem(KEY) === roomId;
-  } catch {
-    return false;
-  }
+  return safeSessionGet(KEY) === roomId;
 }
