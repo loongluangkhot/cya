@@ -9,7 +9,7 @@ if (!BACKEND_URL) {
 export default defineConfig({
   plugins: [react()],
   server: {
-    port: 5173,
+    allowedHosts: true, // allows all hosts
   },
   define: {
     __BACKEND_URL__: JSON.stringify(BACKEND_URL),

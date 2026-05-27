@@ -20,7 +20,7 @@ backend-remote:
 	cd backend && uv run uvicorn main:asgi_app --reload --host 0.0.0.0 --port 8001
 
 frontend-remote:
-	export BACKEND_URL=http://$(HOST_IP):8001 && cd frontend && npm run dev -- --host 0.0.0.0 --port 3001
+	export BACKEND_URL=${CYA_BACKEND_URL} && cd frontend && npm run dev -- --host 0.0.0.0 --port 3001
 
 install:
 	cd frontend && npm install
