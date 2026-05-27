@@ -953,6 +953,15 @@ button { cursor: pointer; }
   .app-header { height: 42px; padding: 0 12px; }
   .app-title { font-size: 24px; letter-spacing: 3px; }
   .app-count { font-size: 14px; }
+  /* Prevent mobile browsers from auto-zooming on focused inputs.
+     iOS Safari zooms when the focused control's computed font-size is < 16px,
+     so all input class rules need to match (selector specificity matters). */
+  .chat-form input,
+  .spotify-input input,
+  .field input,
+  .name-row input,
+  select,
+  textarea { font-size: 16px; }
 }
 
 @media (max-width: 480px) {
