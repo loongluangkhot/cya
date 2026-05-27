@@ -67,8 +67,17 @@ export default function Room({ roomId, onEditMe, onLeave, onMemoPersist }: RoomP
   const [draft, setDraft] = useState('');
   // Which peer's memo block is open inside PeopleSheet. Lifted here so
   // tapping a sticky note in the scene can open the sheet AND focus that
-  // user's memo in one go.
+  // user's memo in one go. We seed it to the local user's id once they're
+  // known, so the sheet opens with the user's own memo expanded — but
+  // tapping the head still collapses it, so behaviour stays symmetric
+  // with peer rows.
   const [expandedMemoId, setExpandedMemoId] = useState<string | null>(null);
+  const seededExpandedRef = useRef(false);
+  useEffect(() => {
+    if (seededExpandedRef.current || !meId) return;
+    seededExpandedRef.current = true;
+    setExpandedMemoId(meId);
+  }, [meId]);
 
   function onSend(text: string) {
     if (!text.trim()) return;
@@ -599,8 +608,7 @@ function PeopleSheet({
       <div>
         {peers.map((p) => {
           const isMe = p.id === meId;
-          const expanded =
-            expandedMemoId === p.id || (isMe && expandedMemoId === null);
+          const expanded = expandedMemoId === p.id;
           return (
             <div key={p.id} className="person-row">
               <div className="person-row-head">

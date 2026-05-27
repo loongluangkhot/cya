@@ -107,7 +107,6 @@ export function MemoBlock({ memo, isMe, expanded, onToggle, onChange }: MemoBloc
               onChange={(e) => setDraft(e.target.value.slice(0, MEMO_MAX))}
               placeholder="markdown welcome &mdash; **bold**, _italic_, lists, links..."
               autoFocus
-              rows={6}
             />
           ) : (
             <div className="memo-rendered">
@@ -124,7 +123,7 @@ export function MemoBlock({ memo, isMe, expanded, onToggle, onChange }: MemoBloc
             <button type="button" className="text-link" onClick={cancel}>
               cancel
             </button>
-            <button type="button" className="btn compact" onClick={save}>
+            <button type="button" className="memo-save" onClick={save}>
               save
             </button>
           </div>

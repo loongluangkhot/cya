@@ -1101,7 +1101,7 @@ input, textarea, select { font-size: 16px; }
   position: absolute;
   left: var(--hud-pad);
   right: calc(var(--hud-pad) + 96px);
-  bottom: 140px;
+  bottom: 120px;
   pointer-events: none;
   z-index: 95;
   display: flex;
@@ -1336,7 +1336,7 @@ input, textarea, select { font-size: 16px; }
   appearance: none;
   width: 100%;
   box-sizing: border-box;
-  padding: 12px 14px;
+  padding: 8px 8px;
   font-family: var(--font-body);
   font-size: 16px;
   color: var(--fg);
@@ -1632,11 +1632,11 @@ input, textarea, select { font-size: 16px; }
   appearance: none;
   width: 100%;
   resize: vertical;
-  min-height: 100px;
-  padding: 8px;
+  min-height: 240px;
+  padding: 10px;
   font-family: var(--font-mono);
   font-size: 13px;
-  line-height: 1.45;
+  line-height: 1.5;
   color: var(--fg);
   background: var(--surface-2);
   border: var(--border-w) solid var(--scene-line);
@@ -1653,6 +1653,23 @@ input, textarea, select { font-size: 16px; }
   font-size: 10px;
   color: var(--muted);
 }
+/* Inline "save" — matches the brutalist mono-button look used by
+   .dial-btn / .memo-tab.selected so it sits flush with the
+   .text-link "cancel" beside it instead of dominating the row. */
+.memo-save {
+  appearance: none;
+  cursor: pointer;
+  padding: 4px 12px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: var(--upper);
+  letter-spacing: var(--tracking);
+  background: var(--fg);
+  color: var(--bg);
+  border: var(--border-w) solid var(--fg);
+}
+.memo-save:active { transform: translate(1px, 1px); }
 
 /* Music sheet (Spotify-skinned). */
 .music-now {
