@@ -158,7 +158,9 @@ export default function IsoScene({ peers, meId, bubbles, room }: IsoSceneProps) 
       onPointerCancel={onPointerUp}
       onDoubleClick={onDoubleClick}
       style={{
-        ['--iso-origin-y' as string]: `calc(50% - ${(ISO_GRID * ISO_TILE_H) / 2}px)`,
+        // Clamp the iso origin so the scene stays on-screen on short
+        // viewports (phone landscape, small laptop windows).
+        ['--iso-origin-y' as string]: `max(80px, calc(50% - ${(ISO_GRID * ISO_TILE_H) / 2}px))`,
       }}
     >
       <div

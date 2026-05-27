@@ -49,9 +49,13 @@ body {
   font-weight: var(--body-weight);
   -webkit-font-smoothing: antialiased;
   overflow: hidden;
-  /* iOS — disable rubber-band */
   overscroll-behavior: none;
-  /* match prototype: keep things inside the viewport */
+}
+
+/* Use dynamic viewport units when supported, so Android Chrome's
+   collapsing toolbar doesn't leave bars stranded. */
+@supports (height: 100dvh) {
+  html, body, #root { height: 100dvh; }
 }
 
 button, input, textarea {
@@ -66,8 +70,13 @@ a { color: inherit; }
 /* iOS prevents zoom on input focus when font-size >= 16px */
 input, textarea, select { font-size: 16px; }
 
-/* The whole app sits inside a single root container that fills the viewport. */
+/* The whole app fills the viewport. The iso scene goes full-bleed; HUD
+   elements (top bar, dock, IRC log, D-pad, sheets, pre-room screens) are
+   centred in a phone-width column via --hud-pad. */
 .cya-app {
+  --hud-max: 560px;
+  --hud-pad: max(14px, calc(50% - var(--hud-max) / 2 + 14px));
+  --hud-pad-screen: max(24px, calc(50% - var(--hud-max) / 2 + 24px));
   width: 100%;
   height: 100%;
   position: relative;
@@ -75,24 +84,31 @@ input, textarea, select { font-size: 16px; }
   background: var(--bg);
 }
 
-/* On wider screens, frame the app like a tall mobile canvas centred horizontally.
-   Phone-shaped column on desktop; full-bleed on phones. */
+/* Soft desktop backdrop — only kicks in once the viewport is wider than
+   the HUD column, so the cya-app sits visually in a tinted page. */
 @media (min-width: 720px) {
   body {
-    display: flex;
-    align-items: center;
-    justify-content: center;
     background:
       radial-gradient(ellipse 90% 60% at 50% 0%, #efece6 0%, transparent 60%),
       radial-gradient(ellipse 50% 50% at 0% 100%, #c8c2b6 0%, transparent 60%),
       #d9d6cf;
   }
-  .cya-app {
-    width: min(420px, 100%);
-    height: min(900px, calc(100vh - 32px));
-    border: var(--border-w) solid var(--fg);
-    box-shadow: 10px 10px 0 var(--fg);
-  }
+}
+
+/* Very short viewports (phone landscape, tiny laptop windows): trim
+   screen padding so flows don't scroll-strand. */
+@media (max-height: 600px) {
+  .screen { padding-top: 16px; padding-bottom: 16px; }
+  .preview-card { margin: 10px 0 14px; padding: 12px 14px; }
+}
+
+/* Very narrow viewports (small Android phones, <360px): smaller display
+   sizes for the splash flow. */
+@media (max-width: 360px) {
+  .lede { font-size: 15px; }
+  .invite-link { font-size: 14px; padding: 14px; }
+  .space-name { font-size: 32px; }
+  .space-name.lg { font-size: 36px; }
 }
 
 /* Hide ugly scrollbars inside the app surface. */
@@ -109,7 +125,7 @@ input, textarea, select { font-size: 16px; }
 .screen {
   width: 100%;
   height: 100%;
-  padding: 28px 24px;
+  padding: 28px var(--hud-pad-screen);
   display: flex;
   flex-direction: column;
   overflow-y: auto;
@@ -441,7 +457,7 @@ input, textarea, select { font-size: 16px; }
   left: 0;
   right: 0;
   z-index: 100;
-  padding: max(env(safe-area-inset-top, 12px), 12px) 14px 10px;
+  padding: max(env(safe-area-inset-top, 12px), 12px) var(--hud-pad) 10px;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -677,8 +693,8 @@ input, textarea, select { font-size: 16px; }
 /* IRC log strip */
 .irc-log {
   position: absolute;
-  left: 12px;
-  right: 104px;
+  left: var(--hud-pad);
+  right: calc(var(--hud-pad) + 96px);
   bottom: 140px;
   pointer-events: none;
   z-index: 95;
@@ -703,7 +719,7 @@ input, textarea, select { font-size: 16px; }
 /* D-pad cross */
 .dpad {
   position: absolute;
-  right: 14px;
+  right: var(--hud-pad);
   bottom: 130px;
   z-index: 95;
   width: 84px;
@@ -749,7 +765,7 @@ input, textarea, select { font-size: 16px; }
   right: 0;
   bottom: 0;
   z-index: 100;
-  padding: 20px 12px max(env(safe-area-inset-bottom, 10px), 10px);
+  padding: 20px var(--hud-pad) max(env(safe-area-inset-bottom, 10px), 10px);
   background: linear-gradient(0deg, var(--bg) 0%, var(--bg) 60%, transparent 100%);
 }
 .dock-chips {
@@ -898,21 +914,24 @@ input, textarea, select { font-size: 16px; }
 
 .sheet {
   position: absolute;
-  left: 0;
-  right: 0;
+  left: 50%;
   bottom: 0;
+  width: 100%;
+  max-width: var(--hud-max);
+  transform: translate(-50%, 110%);
   height: 60%;
   background: var(--bg);
   border-top: var(--border-w) solid var(--fg);
+  border-left: var(--border-w) solid var(--fg);
+  border-right: var(--border-w) solid var(--fg);
   box-shadow: 0 -8px 30px rgba(0, 0, 0, 0.18);
-  transform: translateY(110%);
   transition: transform 0.28s cubic-bezier(0.3, 0.7, 0.4, 1);
   display: flex;
   flex-direction: column;
   overflow: hidden;
 }
 .sheet.tall { height: 78%; }
-.sheet-root.open .sheet { transform: translateY(0); }
+.sheet-root.open .sheet { transform: translate(-50%, 0); }
 .sheet-head {
   padding: 16px 18px 12px;
   display: flex;
