@@ -2,7 +2,13 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { BrowserRouter } from 'react-router-dom';
 import App from './App';
+import { applyTheme, loadTheme } from './themes';
 import './styles/app.css';
+
+// Apply persisted theme. The inline script in index.html already does
+// this synchronously before paint, but this is the React-side source of
+// truth and covers cases where the inline tag was stripped.
+applyTheme(loadTheme());
 
 // One-shot migration: clear keys from the pre-redesign client. Identity now
 // lives under `cya:identity:v2`; theme/background no longer exist.

@@ -8,6 +8,13 @@ import {
   colorHex,
   darken,
 } from '../characters';
+import {
+  THEMES,
+  applyTheme,
+  loadTheme,
+  saveTheme,
+  type ThemeId,
+} from '../themes';
 import type { CharacterId, ColorId, User } from '../types';
 import PixelCharacter from './PixelCharacter';
 import Wordmark from './Wordmark';
@@ -55,8 +62,18 @@ export function SetupScreen({ initial, onDone, onCancel, submitLabel }: SetupPro
   const [name, setName] = useState(initial?.name || '');
   const [color, setColor] = useState<ColorId>(initial?.color || DEFAULT_COLOR);
   const [character, setCharacter] = useState<CharacterId>(initial?.character || DEFAULT_CHARACTER);
+  const [theme, setTheme] = useState<ThemeId>(() => loadTheme());
   const canSave = name.trim().length > 0;
   const preview = name.trim() || 'you';
+
+  // Theme is a personal preference — apply + persist immediately on
+  // selection so the user sees the change as a live preview. It's
+  // independent of identity (cancelling setup keeps the new theme).
+  function chooseTheme(next: ThemeId) {
+    setTheme(next);
+    applyTheme(next);
+    saveTheme(next);
+  }
 
   function submit(e: FormEvent) {
     e.preventDefault();
@@ -150,6 +167,30 @@ export function SetupScreen({ initial, onDone, onCancel, submitLabel }: SetupPro
               </button>
             );
           })}
+        </div>
+      </div>
+
+      <div style={{ marginBottom: 24 }}>
+        <div className="label">look</div>
+        <div className="theme-grid">
+          {THEMES.map((t) => (
+            <button
+              key={t.id}
+              type="button"
+              className={`theme-tile${t.id === theme ? ' selected' : ''}`}
+              onClick={() => chooseTheme(t.id)}
+              aria-pressed={t.id === theme}
+              aria-label={`theme: ${t.name}`}
+            >
+              <div
+                className="theme-swatch"
+                style={{ background: t.bg, borderColor: t.fg, color: t.fg }}
+              >
+                Aa
+              </div>
+              <span className="theme-tile-label">{t.name}</span>
+            </button>
+          ))}
         </div>
       </div>
 

@@ -3,27 +3,94 @@
    Single theme: black-on-cream with hard shadows and mono accent.
    ============================================================ */
 
-:root {
+/* ───────────── Theme tokens ─────────────
+   Five user-controllable primary tokens (bg, fg, surface, surface-2,
+   muted) are set per theme below. All other tokens are derived from
+   these so they auto-flow when the theme changes. */
+:root,
+:root[data-theme="cream"] {
   --bg: #f6f5f1;
-  --bg-2: #eeece6;
+  --fg: #0a0a0a;
   --surface: #ffffff;
   --surface-2: #eeece6;
-  --surface-deep: #0a0a0a;
-  --fg: #0a0a0a;
   --muted: #6e6e6e;
-  --border: #0a0a0a;
-  --accent: #0a0a0a;
+}
+:root[data-theme="forest"] {
+  --bg: #e8efe4;
+  --fg: #1c2a1f;
+  --surface: #f1f5ed;
+  --surface-2: #d4ddce;
+  --muted: #5a6e58;
+}
+:root[data-theme="midnight"] {
+  --bg: #1a1a1a;
+  --fg: #f4f1ea;
+  --surface: #262626;
+  --surface-2: #2e2e2e;
+  --muted: #8a8780;
+}
+:root[data-theme="sepia"] {
+  --bg: #ece1cb;
+  --fg: #2a1f12;
+  --surface: #f5ebd7;
+  --surface-2: #e0d3b8;
+  --muted: #7a6a4d;
+}
+:root[data-theme="slate"] {
+  --bg: #dfe2e6;
+  --fg: #15191e;
+  --surface: #eceff2;
+  --surface-2: #cdd2d8;
+  --muted: #5b6168;
+}
+:root[data-theme="neon"] {
+  --bg: #0a100c;
+  --fg: #5cff8a;
+  --surface: #131c16;
+  --surface-2: #1d2a22;
+  --muted: #4a8a6a;
+}
 
-  --scene-floor: #eeece6;
-  --scene-line: #0a0a0a;
-  --scene-dark: #0a0a0a;
+/* Neon-only: subtle glow on key chrome elements so the theme actually
+   reads as "neon" instead of just "dark mode with green text". */
+:root[data-theme="neon"] .wordmark,
+:root[data-theme="neon"] .h-display,
+:root[data-theme="neon"] .space-name,
+:root[data-theme="neon"] .room-top-title .name,
+:root[data-theme="neon"] .peer-tag,
+:root[data-theme="neon"] .irc-name {
+  text-shadow: 0 0 6px var(--fg), 0 0 14px rgba(92, 255, 138, 0.45);
+}
+:root[data-theme="neon"] .btn,
+:root[data-theme="neon"] .dial-btn.selected,
+:root[data-theme="neon"] .wander-btn.active,
+:root[data-theme="neon"] .character-tile.selected {
+  box-shadow: var(--shadow-hard), 0 0 14px rgba(92, 255, 138, 0.35);
+}
+:root[data-theme="neon"] .bubble-body {
+  box-shadow: var(--shadow-hard), 0 0 18px rgba(92, 255, 138, 0.25);
+}
+:root[data-theme="neon"] .live-dot {
+  background: #5cff8a;
+  box-shadow: 0 0 8px rgba(92, 255, 138, 0.9);
+}
+
+:root {
+  /* Derived tokens — kept here so they re-resolve under any theme. */
+  --bg-2: var(--surface-2);
+  --surface-deep: var(--fg);
+  --border: var(--fg);
+  --accent: var(--fg);
+  --scene-floor: var(--surface-2);
+  --scene-line: var(--fg);
+  --scene-dark: var(--fg);
 
   --radius: 0px;
   --radius-sm: 0px;
   --radius-pill: 0px;
   --border-w: 1px;
   --shadow: none;
-  --shadow-hard: 4px 4px 0 #0a0a0a;
+  --shadow-hard: 4px 4px 0 var(--fg);
 
   --font-display: 'Space Grotesk', system-ui, sans-serif;
   --font-body: 'Space Grotesk', system-ui, sans-serif;
@@ -82,6 +149,30 @@ input, textarea, select { font-size: 16px; }
   position: relative;
   overflow: hidden;
   background: var(--bg);
+}
+
+/* Targeted text-select suppression: only inside <button> elements (and
+   their descendants — covers D-pad arrows, wander label, room title,
+   icon buttons, etc.). Everything else is normally selectable. This
+   stops mobile long-press from triggering the text-selection UI on
+   movement controls without sacrificing copy/select elsewhere. */
+.cya-app button,
+.cya-app button * {
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
+}
+.cya-app button {
+  touch-action: manipulation;
+}
+
+/* The IRC container is pointer-events: none so drag-to-pan on the scene
+   passes through it. Re-enable pointer events on the individual rows
+   themselves so users can actually click+drag to select message text. */
+.cya-app .irc-row {
+  pointer-events: auto;
+  cursor: text;
 }
 
 /* Soft desktop backdrop — only kicks in once the viewport is wider than
@@ -342,6 +433,54 @@ input, textarea, select { font-size: 16px; }
   transition: transform 0.1s ease;
 }
 
+/* Theme picker — small bg+fg preview tiles. Auto-fit so 6 tiles fit
+   on phone widths down to ~320px without ugly wrapping. */
+.theme-grid {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 8px;
+}
+@media (max-width: 360px) {
+  .theme-grid { grid-template-columns: repeat(3, 1fr); }
+}
+.theme-tile {
+  appearance: none;
+  cursor: pointer;
+  padding: 0;
+  background: transparent;
+  border: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  -webkit-tap-highlight-color: transparent;
+}
+.theme-swatch {
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: var(--border-w) solid var(--fg);
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 18px;
+  letter-spacing: -0.02em;
+}
+.theme-tile.selected .theme-swatch {
+  box-shadow: 0 0 0 1px var(--bg), 0 0 0 calc(1px + var(--border-w)) var(--fg);
+  transform: scale(1.06);
+}
+.theme-tile-label {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  text-transform: var(--upper);
+  letter-spacing: var(--tracking);
+  font-weight: 700;
+  color: var(--muted);
+}
+.theme-tile.selected .theme-tile-label { color: var(--fg); }
+
 /* Character grid */
 .character-grid {
   display: grid;
@@ -464,20 +603,51 @@ input, textarea, select { font-size: 16px; }
   gap: 10px;
   background: linear-gradient(180deg, var(--bg) 0%, var(--bg) 70%, transparent 100%);
 }
+/* Acts as a copy-link button. Button-reset + user-select disabled so
+   taps on the title don't trigger text selection on mobile. */
 .room-top-title {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  padding: 0;
+  margin: 0;
+  text-align: left;
+  cursor: pointer;
   display: flex;
   flex-direction: column;
   min-width: 0;
+  color: inherit;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
+}
+.room-top-title:hover .slug { color: var(--fg); }
+.room-top-title .slug.copied {
+  color: var(--fg);
+  font-weight: 700;
+  animation: slug-flash 0.35s ease-out;
+}
+@keyframes slug-flash {
+  0%   { transform: translateY(-1px); opacity: 0; }
+  40%  { transform: translateY(0);    opacity: 1; }
+  100% { transform: translateY(0);    opacity: 1; }
 }
 .room-top-title .slug {
+  display: block;
   font-family: var(--font-mono);
   font-size: 10px;
   color: var(--muted);
   text-transform: var(--upper);
   letter-spacing: var(--tracking);
   line-height: 1.1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  transition: color 0.15s ease;
 }
 .room-top-title .name {
+  display: block;
   font-family: var(--font-display);
   font-size: 19px;
   font-weight: var(--display-weight);
@@ -544,8 +714,24 @@ input, textarea, select { font-size: 16px; }
   cursor: grab;
   touch-action: none;
   user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
 }
 .iso-scene.dragging { cursor: grabbing; }
+/* Nothing inside the iso world should be text-selectable — covers SVG
+   <text> (the "HI" signpost), peer name tags, and chat bubbles. SVG
+   <text> needs an explicit rule because user-select doesn't always
+   inherit into the SVG namespace on Safari/iOS. */
+.iso-scene *,
+.iso-scene svg,
+.iso-scene svg text,
+.iso-scene .peer-tag,
+.iso-scene .bubble-body {
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+}
 
 .iso-camera {
   position: absolute;
@@ -823,7 +1009,13 @@ input, textarea, select { font-size: 16px; }
   border: 1px solid var(--scene-line);
   align-self: flex-start;
   max-width: 90%;
+  min-width: 0;
   box-shadow: 0 1px 2px rgba(0,0,0,0.06);
+  /* Break long words / URLs onto the next line instead of spilling out
+     of the row's max-width. */
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  white-space: normal;
 }
 .irc-name { font-weight: 700; }
 
@@ -1350,7 +1542,11 @@ input, textarea, select { font-size: 16px; }
   padding: 0;
   width: 100%;
 }
-.spotify-tile + .spotify-tile { margin-top: 0; }
+/* Match the spacing between consecutive track rows so tracks, albums,
+   and playlists all have a consistent 6px gap. */
+.spotify-tile + .spotify-tile,
+.spotify-row + .spotify-tile,
+.spotify-tile + .spotify-row { margin-top: 6px; }
 .spotify-tile .spotify-row { width: 100%; }
 
 .music-back {
