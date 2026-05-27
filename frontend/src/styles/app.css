@@ -658,36 +658,147 @@ input, textarea, select { font-size: 16px; }
   animation: rain-anim 0.6s linear infinite;
   opacity: 0.7;
 }
+/* Snow — two stacked layers of tiled flakes scrolling at different speeds
+   for a parallax sense of depth. Each layer packs ~16 flakes into a small
+   tile that repeats across the scene. */
 .ambient-snow {
   position: absolute;
   inset: 0;
   z-index: 85;
   pointer-events: none;
+  overflow: hidden;
   background-image:
-    radial-gradient(2px 2px at 20% 30%, #fff, transparent),
-    radial-gradient(1.5px 1.5px at 70% 15%, #fff, transparent),
-    radial-gradient(2px 2px at 45% 60%, #fff, transparent),
-    radial-gradient(1px 1px at 80% 75%, #fff, transparent),
-    radial-gradient(1.5px 1.5px at 30% 80%, #fff, transparent),
-    radial-gradient(2px 2px at 60% 45%, #fff, transparent),
-    radial-gradient(1px 1px at 10% 50%, #fff, transparent);
-  animation: snow-anim 7s linear infinite;
-  opacity: 0.9;
+    radial-gradient(circle 2px at 4% 8%, #fff 100%, transparent 100%),
+    radial-gradient(circle 1.5px at 11% 28%, #fff 100%, transparent 100%),
+    radial-gradient(circle 2.5px at 18% 52%, #fff 100%, transparent 100%),
+    radial-gradient(circle 1px at 25% 14%, #fff 100%, transparent 100%),
+    radial-gradient(circle 2px at 32% 76%, #fff 100%, transparent 100%),
+    radial-gradient(circle 1.5px at 39% 40%, #fff 100%, transparent 100%),
+    radial-gradient(circle 2.5px at 46% 92%, #fff 100%, transparent 100%),
+    radial-gradient(circle 1.5px at 53% 22%, #fff 100%, transparent 100%),
+    radial-gradient(circle 2px at 60% 64%, #fff 100%, transparent 100%),
+    radial-gradient(circle 1px at 67% 36%, #fff 100%, transparent 100%),
+    radial-gradient(circle 2.5px at 74% 88%, #fff 100%, transparent 100%),
+    radial-gradient(circle 1.5px at 81% 18%, #fff 100%, transparent 100%),
+    radial-gradient(circle 2px at 88% 48%, #fff 100%, transparent 100%),
+    radial-gradient(circle 1.5px at 95% 80%, #fff 100%, transparent 100%);
+  background-size: 220px 220px;
+  background-repeat: repeat;
+  animation: snow-anim 3.5s linear infinite;
 }
+.ambient-snow::before {
+  /* Smaller, faster, slightly translucent layer in front. */
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image:
+    radial-gradient(circle 1.5px at 6% 12%, rgba(255,255,255,0.9), transparent 100%),
+    radial-gradient(circle 1px at 14% 38%, rgba(255,255,255,0.9), transparent 100%),
+    radial-gradient(circle 1.5px at 22% 72%, rgba(255,255,255,0.9), transparent 100%),
+    radial-gradient(circle 1px at 31% 24%, rgba(255,255,255,0.9), transparent 100%),
+    radial-gradient(circle 1.5px at 39% 60%, rgba(255,255,255,0.9), transparent 100%),
+    radial-gradient(circle 1px at 48% 8%, rgba(255,255,255,0.9), transparent 100%),
+    radial-gradient(circle 1.5px at 57% 84%, rgba(255,255,255,0.9), transparent 100%),
+    radial-gradient(circle 1px at 65% 32%, rgba(255,255,255,0.9), transparent 100%),
+    radial-gradient(circle 1.5px at 73% 56%, rgba(255,255,255,0.9), transparent 100%),
+    radial-gradient(circle 1px at 82% 20%, rgba(255,255,255,0.9), transparent 100%),
+    radial-gradient(circle 1.5px at 91% 68%, rgba(255,255,255,0.9), transparent 100%);
+  background-size: 160px 160px;
+  background-repeat: repeat;
+  animation: snow-anim-fast 2s linear infinite;
+}
+
+/* Fog — base haze, slow body wisps, and quick foreground wisps. The body
+   layer drifts wide and slow; the foreground layer is sharper and moves
+   faster, so the eye latches onto its motion. */
 .ambient-fog {
   position: absolute;
   inset: 0;
   z-index: 85;
   pointer-events: none;
-  background: radial-gradient(ellipse 80% 60% at 50% 50%, transparent 0%, rgba(220,225,230,0.55) 100%);
+  overflow: hidden;
+  /* Thinner base so wisps stand out instead of getting drowned. */
+  background:
+    linear-gradient(
+      180deg,
+      rgba(220,225,232,0.55) 0%,
+      rgba(205,212,220,0.32) 45%,
+      rgba(205,212,220,0.32) 55%,
+      rgba(220,225,232,0.55) 100%
+    );
 }
+.ambient-fog::before {
+  /* Body — many bright wisps, light blur, fast drift. */
+  content: '';
+  position: absolute;
+  inset: -40% -30%;
+  pointer-events: none;
+  background-image:
+    radial-gradient(ellipse 22% 16% at 8% 22%, rgba(255,255,255,0.92), transparent 60%),
+    radial-gradient(ellipse 18% 14% at 22% 8%, rgba(255,255,255,0.85), transparent 60%),
+    radial-gradient(ellipse 26% 18% at 38% 32%, rgba(255,255,255,0.9), transparent 60%),
+    radial-gradient(ellipse 20% 14% at 52% 14%, rgba(255,255,255,0.85), transparent 60%),
+    radial-gradient(ellipse 24% 16% at 68% 36%, rgba(255,255,255,0.9), transparent 60%),
+    radial-gradient(ellipse 18% 14% at 82% 18%, rgba(255,255,255,0.85), transparent 60%),
+    radial-gradient(ellipse 22% 16% at 94% 40%, rgba(255,255,255,0.88), transparent 60%),
+    radial-gradient(ellipse 24% 16% at 12% 58%, rgba(255,255,255,0.88), transparent 60%),
+    radial-gradient(ellipse 20% 14% at 28% 72%, rgba(255,255,255,0.85), transparent 60%),
+    radial-gradient(ellipse 26% 18% at 44% 60%, rgba(255,255,255,0.9), transparent 60%),
+    radial-gradient(ellipse 18% 14% at 58% 84%, rgba(255,255,255,0.85), transparent 60%),
+    radial-gradient(ellipse 24% 16% at 72% 66%, rgba(255,255,255,0.9), transparent 60%),
+    radial-gradient(ellipse 20% 14% at 86% 88%, rgba(255,255,255,0.85), transparent 60%);
+  filter: blur(5px);
+  animation: fog-roll-1 12s linear infinite;
+  will-change: transform;
+}
+.ambient-fog::after {
+  /* Back layer — bigger soft wisps drifting the opposite direction. */
+  content: '';
+  position: absolute;
+  inset: -40% -30%;
+  pointer-events: none;
+  background-image:
+    radial-gradient(ellipse 36% 22% at 18% 28%, rgba(255,255,255,0.65), transparent 65%),
+    radial-gradient(ellipse 30% 20% at 52% 18%, rgba(255,255,255,0.6), transparent 65%),
+    radial-gradient(ellipse 40% 24% at 82% 42%, rgba(255,255,255,0.65), transparent 65%),
+    radial-gradient(ellipse 32% 22% at 32% 70%, rgba(255,255,255,0.6), transparent 65%),
+    radial-gradient(ellipse 38% 24% at 70% 88%, rgba(255,255,255,0.65), transparent 65%);
+  filter: blur(14px);
+  animation: fog-roll-2 22s linear infinite;
+  opacity: 0.85;
+  will-change: transform;
+}
+
 @keyframes rain-anim {
   from { background-position: 0 0; }
   to   { background-position: 12px 60px; }
 }
 @keyframes snow-anim {
   from { background-position: 0 0; }
-  to   { background-position: 0 200px; }
+  to   { background-position: 0 220px; }
+}
+@keyframes snow-anim-fast {
+  from { background-position: 0 0; }
+  to   { background-position: 0 160px; }
+}
+/* Front fog wisps — continuous left-to-right drift while breathing.
+   Layers are inset -30%..-40% beyond viewport edges, so they're 40-50%
+   wider than the visible area; -50% to +50% translate stays bounded. */
+@keyframes fog-roll-1 {
+  0%   { transform: translate3d(-50%, -2%, 0) scale(1.00, 1.05); }
+  25%  { transform: translate3d(-25%,  3%, 0) scale(1.08, 0.98); }
+  50%  { transform: translate3d(0,    -3%, 0) scale(0.94, 1.06); }
+  75%  { transform: translate3d(25%,   2%, 0) scale(1.10, 1.00); }
+  100% { transform: translate3d(50%,  -2%, 0) scale(1.00, 1.05); }
+}
+/* Back fog wisps — drift right-to-left, slower, with their own breathing. */
+@keyframes fog-roll-2 {
+  0%   { transform: translate3d(50%,  2%, 0) scale(1.05, 1.10); }
+  25%  { transform: translate3d(25%, -3%, 0) scale(0.92, 1.04); }
+  50%  { transform: translate3d(0,    3%, 0) scale(1.12, 0.96); }
+  75%  { transform: translate3d(-25%,-2%, 0) scale(1.00, 1.08); }
+  100% { transform: translate3d(-50%, 2%, 0) scale(1.05, 1.10); }
 }
 
 /* IRC log strip */
@@ -758,6 +869,40 @@ input, textarea, select { font-size: 16px; }
 .dpad-right { left: 56px; top: 28px;  width: 28px; height: 28px; }
 .dpad-down  { left: 28px; top: 56px;  width: 28px; height: 28px; }
 
+/* Wander toggle — sits just above the D-pad. */
+.wander-btn {
+  position: absolute;
+  right: var(--hud-pad);
+  bottom: 226px;
+  z-index: 95;
+  appearance: none;
+  cursor: pointer;
+  min-width: 84px;
+  padding: 8px 10px;
+  background: var(--fg);
+  color: var(--bg);
+  border: var(--border-w) solid var(--fg);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: var(--tracking);
+  text-transform: var(--upper);
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+  -webkit-user-select: none;
+  box-shadow: 0 2px 0 rgba(0, 0, 0, 0.25);
+}
+.wander-btn:active { transform: translateY(1px); box-shadow: 0 1px 0 rgba(0, 0, 0, 0.25); }
+.wander-btn.active {
+  background: var(--surface);
+  color: var(--fg);
+  animation: wanderPulse 1.4s ease-in-out infinite;
+}
+@keyframes wanderPulse {
+  0%, 100% { box-shadow: 0 2px 0 rgba(0, 0, 0, 0.25), inset 0 0 0 0 var(--fg); }
+  50%      { box-shadow: 0 2px 0 rgba(0, 0, 0, 0.25), inset 0 0 0 2px var(--fg); }
+}
+
 /* Bottom dock */
 .dock {
   position: absolute;
@@ -825,6 +970,16 @@ input, textarea, select { font-size: 16px; }
   width: 100%;
 }
 .dock-chip-glyph { font-size: 16px; line-height: 1; }
+.dock-chip-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  line-height: 1;
+}
+.dock-chip-status svg {
+  flex-shrink: 0;
+  fill: currentColor;
+}
 
 .composer {
   display: flex;
@@ -1324,6 +1479,48 @@ input, textarea, select { font-size: 16px; }
   color: var(--bg);
   background: var(--fg);
   box-shadow: var(--shadow-hard);
+}
+
+/* Brutal-style range slider for ambient intensity. */
+.intensity-slider {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 100%;
+  height: 8px;
+  background: var(--surface);
+  border: var(--border-w) solid var(--fg);
+  cursor: pointer;
+  outline: none;
+  padding: 0;
+  margin: 0;
+}
+.intensity-slider::-webkit-slider-runnable-track {
+  height: 6px;
+  background: transparent;
+}
+.intensity-slider::-moz-range-track {
+  height: 6px;
+  background: transparent;
+}
+.intensity-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 18px;
+  height: 18px;
+  background: var(--fg);
+  border: var(--border-w) solid var(--fg);
+  cursor: pointer;
+  margin-top: -7px;
+  box-shadow: 2px 2px 0 rgba(0, 0, 0, 0.25);
+}
+.intensity-slider::-moz-range-thumb {
+  width: 18px;
+  height: 18px;
+  background: var(--fg);
+  border: var(--border-w) solid var(--fg);
+  cursor: pointer;
+  border-radius: 0;
+  box-shadow: 2px 2px 0 rgba(0, 0, 0, 0.25);
 }
 
 /* Pixel character — flush block svg */

@@ -28,6 +28,8 @@ export interface Ambient {
   time: AmbientTime;
   weather: AmbientWeather;
   room: AmbientRoom;
+  /** 0..100 — multiplies the weather overlay opacity. */
+  intensity: number;
 }
 
 export interface User {

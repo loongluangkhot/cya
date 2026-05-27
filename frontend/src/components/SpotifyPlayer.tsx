@@ -982,11 +982,13 @@ function DrillView({
       })
       .catch((e: Error) => {
         if (cancelled) return;
-        // 403 on a Spotify-curated playlist (Discover Weekly, Daily Mix,
-        // "Made for you" etc.). Translate to a friendlier message.
-        if (drill.kind === 'playlist' && /\b403\b/.test(e.message)) {
+        // 403 on user-owned playlists usually means the user isn't listed
+        // under "Users and Access" in the Spotify Developer Dashboard
+        // (required for apps in Development Mode). 403 on Spotify-curated
+        // playlists hits the same code path — both get the same hint.
+        if (/\b403\b/.test(e.message)) {
           setErr(
-            "Spotify-curated playlists (like Discover Weekly or Daily Mix) aren't accessible from third-party apps. Try one of your own playlists instead.",
+            "Spotify returned 403 Forbidden. If this is your own playlist, your Spotify account may not be added to this app's 'Users and Access' list (required for apps in Development Mode). Open developer.spotify.com/dashboard → your app → Users and Access → add your Spotify email, then reconnect below.",
           );
         } else {
           setErr(e.message);
@@ -1005,7 +1007,21 @@ function DrillView({
       <div className="h-display" style={{ fontSize: 18, marginBottom: 10 }}>
         {drill.name}
       </div>
-      {err && <small className="music-error">{err}</small>}
+      {err && (
+        <>
+          <small className="music-error" style={{ display: 'block', lineHeight: 1.45 }}>{err}</small>
+          {/\b403\b/.test(err) || err.includes('403 Forbidden') ? (
+            <button
+              type="button"
+              className="btn btn-ghost compact"
+              style={{ marginTop: 10 }}
+              onClick={() => beginSpotifyLogin({ forceConsent: true })}
+            >
+              reconnect spotify
+            </button>
+          ) : null}
+        </>
+      )}
       {tracks === null && !err && <div className="list-loading">loading…</div>}
       {tracks && tracks.length === 0 && <div className="search-empty">empty.</div>}
       {tracks?.map((t) => (

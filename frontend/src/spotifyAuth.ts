@@ -105,7 +105,7 @@ async function codeChallenge(verifier: string): Promise<string> {
 
 // ───────── Public flow ─────────
 
-export async function beginSpotifyLogin(returnTo?: string) {
+export async function beginSpotifyLogin(opts: { returnTo?: string; forceConsent?: boolean } = {}) {
   if (!CLIENT_ID) {
     throw new Error('VITE_SPOTIFY_CLIENT_ID not configured');
   }
@@ -114,7 +114,7 @@ export async function beginSpotifyLogin(returnTo?: string) {
   sessionStorage.setItem(VERIFIER_KEY, verifier);
   sessionStorage.setItem(
     RETURN_KEY,
-    returnTo ?? window.location.pathname + window.location.search,
+    opts.returnTo ?? window.location.pathname + window.location.search,
   );
   const params = new URLSearchParams({
     client_id: CLIENT_ID,
@@ -124,6 +124,10 @@ export async function beginSpotifyLogin(returnTo?: string) {
     code_challenge_method: 'S256',
     code_challenge: challenge,
   });
+  // show_dialog=true forces Spotify to re-show the consent screen even
+  // for already-approved apps, so we get fresh scopes (and a fresh
+  // refresh_token).
+  if (opts.forceConsent) params.set('show_dialog', 'true');
   window.location.href = `${AUTH_URL}?${params.toString()}`;
 }
 

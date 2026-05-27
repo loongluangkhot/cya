@@ -48,6 +48,8 @@ class Ambient:
     time: str = "dawn"
     weather: str = "clear"
     room: str = "clearing"
+    # 0..100. Multiplier on the weather overlay's opacity client-side.
+    intensity: int = 70
 
 
 @dataclass
@@ -404,6 +406,12 @@ async def on_update_ambient(sid: str, payload: dict[str, Any]) -> None:
     if isinstance(r, str) and r in _AMBIENT_ROOMS and r != room.ambient.room:
         room.ambient.room = r
         changed = True
+    i = payload.get("intensity")
+    if isinstance(i, (int, float)):
+        clamped = max(0, min(100, int(i)))
+        if clamped != room.ambient.intensity:
+            room.ambient.intensity = clamped
+            changed = True
     if not changed:
         return
     await sio.emit("ambientChanged", asdict(room.ambient), room=room.id)

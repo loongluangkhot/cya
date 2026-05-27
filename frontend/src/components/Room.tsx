@@ -62,16 +62,18 @@ export default function Room({ roomId, onEditMe, onLeave }: RoomProps) {
     time: 'dawn',
     weather: 'clear',
     room: 'clearing',
+    intensity: 70,
   });
   const [playback, setPlayback] = useState<PlaybackState>(EMPTY_PLAYBACK);
   const [queue, setQueue] = useState<string[]>([]);
   const [sheet, setSheet] = useState<Sheet>(null);
   const [draft, setDraft] = useState('');
-  // Album art cache for the dock chip. Populated via Spotify's oEmbed
-  // endpoint (no auth required) so the chip can show art even for users
-  // who haven't connected Spotify.
-  const [trackArt, setTrackArt] = useState<Record<string, string>>({});
+  // Per-uri title + art cache for the dock chip. Populated via Spotify's
+  // oEmbed endpoint (no auth required) so the chip can render even for
+  // users who haven't connected Spotify.
+  const [trackMeta, setTrackMeta] = useState<Record<string, { art: string; title: string }>>({});
   const [toasts, setToasts] = useState<{ id: string; text: string }[]>([]);
+  const [wandering, setWandering] = useState(false);
 
   function pushToast(text: string) {
     const id = Math.random().toString(36).slice(2);
@@ -216,10 +218,10 @@ export default function Room({ roomId, onEditMe, onLeave }: RoomProps) {
     };
   }, []);
 
-  // ────────────── Track art (oEmbed) ──────────────
+  // ────────────── Track metadata (oEmbed) ──────────────
   useEffect(() => {
     const uri = playback.trackUri;
-    if (!uri || trackArt[uri]) return;
+    if (!uri || trackMeta[uri]) return;
     const id = uri.replace('spotify:track:', '');
     if (!/^[A-Za-z0-9]{22}$/.test(id)) return;
     let cancelled = false;
@@ -227,16 +229,19 @@ export default function Room({ roomId, onEditMe, onLeave }: RoomProps) {
     fetch(`https://open.spotify.com/oembed?url=${encodeURIComponent(target)}`)
       .then((r) => (r.ok ? r.json() : null))
       .then((data) => {
-        if (cancelled || !data?.thumbnail_url) return;
-        setTrackArt((prev) => ({ ...prev, [uri]: data.thumbnail_url }));
+        if (cancelled || !data) return;
+        const art = typeof data.thumbnail_url === 'string' ? data.thumbnail_url : '';
+        const title = typeof data.title === 'string' ? data.title : '';
+        if (!art && !title) return;
+        setTrackMeta((prev) => ({ ...prev, [uri]: { art, title } }));
       })
       .catch(() => {
-        // ignore — chip falls back to the gradient placeholder
+        // ignore — chip falls back to defaults
       });
     return () => {
       cancelled = true;
     };
-  }, [playback.trackUri, trackArt]);
+  }, [playback.trackUri, trackMeta]);
 
   // ────────────── Bubble expiry ──────────────
   useEffect(() => {
@@ -281,6 +286,41 @@ export default function Room({ roomId, onEditMe, onLeave }: RoomProps) {
     }
   }
 
+  // Wander — picks random floor targets and walks toward them via nudge(),
+  // same as user input so server sync and animation work identically.
+  useEffect(() => {
+    if (!wandering) return;
+    function pickTarget() {
+      return {
+        x: MIN_PCT + 4 + Math.random() * (MAX_PCT - MIN_PCT - 8),
+        y: MIN_PCT + 4 + Math.random() * (MAX_PCT - MIN_PCT - 8),
+      };
+    }
+    let target = pickTarget();
+    let arrivedAt = 0;
+    const id = window.setInterval(() => {
+      const pos = posRef.current;
+      const dx = target.x - pos.x;
+      const dy = target.y - pos.y;
+      const dist = Math.hypot(dx, dy);
+      if (dist < 3) {
+        // Arrived; idle briefly then pick a new spot.
+        if (arrivedAt === 0) arrivedAt = Date.now();
+        if (Date.now() - arrivedAt > 1400) {
+          target = pickTarget();
+          arrivedAt = 0;
+        }
+        return;
+      }
+      arrivedAt = 0;
+      const sx = dx === 0 ? 0 : dx > 0 ? 1 : -1;
+      const sy = dy === 0 ? 0 : dy > 0 ? 1 : -1;
+      nudge(sx, sy);
+    }, 160);
+    return () => window.clearInterval(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [wandering]);
+
   // Arrow key handler — drive our own repeat (avoid OS auto-repeat delay).
   useEffect(() => {
     const held = keysRef.current;
@@ -303,6 +343,8 @@ export default function Room({ roomId, onEditMe, onLeave }: RoomProps) {
       if (!['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) return;
       e.preventDefault();
       if (e.repeat) return;
+      // Any manual movement cancels wander.
+      setWandering(false);
       if (!held.has(e.key)) {
         const first = held.size === 0;
         held.add(e.key);
@@ -396,7 +438,21 @@ export default function Room({ roomId, onEditMe, onLeave }: RoomProps) {
       <IsoScene peers={users} meId={meId} bubbles={bubbles} room={ambient.room} />
       <AmbienceOverlay ambient={ambient} />
 
-      <DPad onNudge={nudge} />
+      <DPad
+        onNudge={(dx, dy) => {
+          // Any manual D-pad input cancels wander.
+          setWandering(false);
+          nudge(dx, dy);
+        }}
+      />
+      <button
+        type="button"
+        className={`wander-btn${wandering ? ' active' : ''}`}
+        onClick={() => setWandering((w) => !w)}
+        aria-pressed={wandering}
+      >
+        wander
+      </button>
 
       <RoomTopBar
         roomId={roomId}
@@ -410,7 +466,8 @@ export default function Room({ roomId, onEditMe, onLeave }: RoomProps) {
       <RoomDock
         ambient={ambient}
         playback={playback}
-        trackArt={playback.trackUri ? trackArt[playback.trackUri] : undefined}
+        trackArt={playback.trackUri ? trackMeta[playback.trackUri]?.art : undefined}
+        trackTitle={playback.trackUri ? trackMeta[playback.trackUri]?.title : undefined}
         draft={draft}
         setDraft={setDraft}
         onSend={sendMessage}
@@ -501,6 +558,7 @@ interface RoomDockProps {
   ambient: Ambient;
   playback: PlaybackState;
   trackArt: string | undefined;
+  trackTitle: string | undefined;
   draft: string;
   setDraft: (v: string) => void;
   onSend: (text: string) => void;
@@ -523,6 +581,7 @@ function RoomDock({
   ambient,
   playback,
   trackArt,
+  trackTitle,
   draft,
   setDraft,
   onSend,
@@ -553,14 +612,17 @@ function RoomDock({
           )}
           <div className="dock-chip-text">
             <div className="dock-chip-title">
-              {playback.trackUri ? 'now playing' : 'no track'}
+              {playback.trackUri ? (trackTitle || 'now playing') : 'no track'}
             </div>
             <div className="dock-chip-meta">
-              {playback.trackUri
-                ? playback.isPlaying
-                  ? '▶ playing · open'
-                  : '⏸ paused · open'
-                : 'tap to set a track'}
+              {playback.trackUri ? (
+                <span className="dock-chip-status">
+                  <Icon name={playback.isPlaying ? 'play' : 'pause'} size={10} />
+                  {playback.isPlaying ? 'playing' : 'paused'}
+                </span>
+              ) : (
+                'tap to set a track'
+              )}
             </div>
           </div>
         </button>
@@ -694,12 +756,15 @@ const TIME_TINTS: Record<AmbientTime, string> = {
 };
 
 function AmbienceOverlay({ ambient }: { ambient: Ambient }) {
+  const weatherStyle: React.CSSProperties = {
+    opacity: Math.max(0, Math.min(1, (ambient.intensity ?? 70) / 100)),
+  };
   return (
     <>
       <div className="ambient-overlay" style={{ background: TIME_TINTS[ambient.time] }} />
-      {ambient.weather === 'rain' && <div className="ambient-rain" />}
-      {ambient.weather === 'snow' && <div className="ambient-snow" />}
-      {ambient.weather === 'fog' && <div className="ambient-fog" />}
+      {ambient.weather === 'rain' && <div className="ambient-rain" style={weatherStyle} />}
+      {ambient.weather === 'snow' && <div className="ambient-snow" style={weatherStyle} />}
+      {ambient.weather === 'fog' && <div className="ambient-fog" style={weatherStyle} />}
     </>
   );
 }
@@ -891,6 +956,20 @@ function AmbienceSheet({
         options={['clear', 'rain', 'snow', 'fog']}
         onChange={(v) => onChange({ weather: v as AmbientWeather })}
       />
+      {ambient.weather !== 'clear' && (
+        <div className="dial-group">
+          <div className="label">intensity · {ambient.intensity ?? 70}%</div>
+          <input
+            type="range"
+            className="intensity-slider"
+            min={0}
+            max={100}
+            step={1}
+            value={ambient.intensity ?? 70}
+            onChange={(e) => onChange({ intensity: parseInt(e.target.value, 10) })}
+          />
+        </div>
+      )}
     </Sheet>
   );
 }
