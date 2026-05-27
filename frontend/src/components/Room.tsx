@@ -11,6 +11,7 @@ import PixelCharacter from './PixelCharacter';
 import SpotifyPlayer from './SpotifyPlayer';
 import ErrorBoundary from './ErrorBoundary';
 import Icon from './Icon';
+import { MemoBlock } from './MemoBlock';
 import { colorHex } from '../characters';
 import { useToasts } from '../hooks/useToasts';
 import { useRoomState } from '../hooks/useRoomState';
@@ -29,11 +30,14 @@ interface RoomProps {
   roomId: string;
   onEditMe: () => void;
   onLeave: () => void;
+  /** Persist a memo change back to the user's localStorage identity, so
+      it travels into the next room they join. */
+  onMemoPersist: (memo: string) => void;
 }
 
 type Sheet = 'people' | 'chat' | 'music' | 'ambience' | null;
 
-export default function Room({ roomId, onEditMe, onLeave }: RoomProps) {
+export default function Room({ roomId, onEditMe, onLeave, onMemoPersist }: RoomProps) {
   const { toasts, pushToast } = useToasts();
   const {
     meId,
@@ -46,6 +50,7 @@ export default function Room({ roomId, onEditMe, onLeave }: RoomProps) {
     queue,
     trackMeta,
     sendMessage,
+    updateMemo,
     changeAmbient,
     changePlayback,
     addToQueue,
@@ -59,6 +64,10 @@ export default function Room({ roomId, onEditMe, onLeave }: RoomProps) {
 
   const [sheet, setSheet] = useState<Sheet>(null);
   const [draft, setDraft] = useState('');
+  // Which peer's memo block is open inside PeopleSheet. Lifted here so
+  // tapping a sticky note in the scene can open the sheet AND focus that
+  // user's memo in one go.
+  const [expandedMemoId, setExpandedMemoId] = useState<string | null>(null);
 
   function onSend(text: string) {
     if (!text.trim()) return;
@@ -66,11 +75,25 @@ export default function Room({ roomId, onEditMe, onLeave }: RoomProps) {
     setDraft('');
   }
 
+  function changeMemo(memo: string) {
+    updateMemo(memo);
+    onMemoPersist(memo);
+  }
+
   const peersById: Record<string, User> = Object.fromEntries(users.map((u) => [u.id, u]));
 
   return (
     <div className="room-root">
-      <IsoScene peers={users} meId={meId} bubbles={bubbles} room={ambient.room} />
+      <IsoScene
+        peers={users}
+        meId={meId}
+        bubbles={bubbles}
+        room={ambient.room}
+        onOpenMemo={(peerId) => {
+          setExpandedMemoId(peerId);
+          setSheet('people');
+        }}
+      />
       <AmbienceOverlay ambient={ambient} />
 
       <DPad
@@ -119,6 +142,9 @@ export default function Room({ roomId, onEditMe, onLeave }: RoomProps) {
         peers={users}
         meId={meId}
         onEditMe={onEditMe}
+        onChangeMemo={changeMemo}
+        expandedMemoId={expandedMemoId}
+        onChangeExpandedMemoId={setExpandedMemoId}
       />
       <ChatLogSheet
         open={sheet === 'chat'}
@@ -494,32 +520,51 @@ function PeopleSheet({
   peers,
   meId,
   onEditMe,
+  onChangeMemo,
+  expandedMemoId,
+  onChangeExpandedMemoId,
 }: {
   open: boolean;
   onClose: () => void;
   peers: User[];
   meId: string | null;
   onEditMe: () => void;
+  onChangeMemo: (memo: string) => void;
+  expandedMemoId: string | null;
+  onChangeExpandedMemoId: (id: string | null) => void;
 }) {
   return (
-    <Sheet open={open} onClose={onClose} title={`${peers.length} in the room`}>
+    <Sheet open={open} onClose={onClose} title={`${peers.length} in the room`} tall>
       <div>
         {peers.map((p) => {
           const isMe = p.id === meId;
+          const expanded =
+            expandedMemoId === p.id || (isMe && expandedMemoId === null);
           return (
             <div key={p.id} className="person-row">
-              <PixelCharacter character={p.character} color={colorHex(p.color)} scale={3} />
-              <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
-                <div className="name">{p.name}{isMe ? ' (you)' : ''}</div>
-                <div className="role">{isMe ? 'this is you' : 'here now'}</div>
+              <div className="person-row-head">
+                <PixelCharacter character={p.character} color={colorHex(p.color)} scale={3} />
+                <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
+                  <div className="name">{p.name}{isMe ? ' (you)' : ''}</div>
+                  <div className="role">{isMe ? 'this is you' : 'here now'}</div>
+                </div>
+                {isMe ? (
+                  <button type="button" className="person-edit" onClick={onEditMe}>
+                    edit
+                  </button>
+                ) : (
+                  <span className="live-dot" />
+                )}
               </div>
-              {isMe ? (
-                <button type="button" className="person-edit" onClick={onEditMe}>
-                  edit
-                </button>
-              ) : (
-                <span className="live-dot" />
-              )}
+              <MemoBlock
+                memo={p.memo}
+                isMe={isMe}
+                expanded={expanded}
+                onToggle={() =>
+                  onChangeExpandedMemoId(expanded ? null : p.id)
+                }
+                onChange={isMe ? onChangeMemo : undefined}
+              />
             </div>
           );
         })}

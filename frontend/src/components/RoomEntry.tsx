@@ -25,7 +25,9 @@ function loadIdentity(): Identity | null {
       typeof parsed.color === 'string' &&
       typeof parsed.character === 'string'
     ) {
-      return parsed as Identity;
+      // Legacy identities (pre-memo) get migrated with an empty memo.
+      const memo = typeof parsed.memo === 'string' ? parsed.memo : '';
+      return { ...(parsed as Identity), memo };
     }
   } catch {
     // ignore
@@ -104,6 +106,7 @@ export default function RoomEntry() {
           name: cm.name,
           character: cm.character,
           color: cm.color,
+          memo: cm.memo,
         },
         (ack) => {
           if (!ack?.ok) {
@@ -207,6 +210,16 @@ export default function RoomEntry() {
           onLeave={() => {
             clearRoomJoined();
             navigate('/');
+          }}
+          onMemoPersist={(memo) => {
+            // Memo is part of Identity (travels between rooms), so persist
+            // the change to localStorage here. The socket emit happens
+            // inside useRoomState.updateMemo.
+            const cur = meRef.current;
+            if (!cur) return;
+            const next = { ...cur, memo };
+            setMe(next);
+            saveIdentity(next);
           }}
         />
       )}

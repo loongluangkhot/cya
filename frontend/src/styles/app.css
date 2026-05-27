@@ -769,6 +769,13 @@ input, textarea, select { font-size: 16px; }
   filter: blur(2px);
   pointer-events: none;
 }
+.peer-stage-inner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  position: relative;
+}
 .peer-tag {
   margin-top: 4px;
   font-family: var(--font-mono);
@@ -828,6 +835,105 @@ input, textarea, select { font-size: 16px; }
   from { opacity: 0; transform: scale(0.85); }
   to   { opacity: 1; transform: scale(1); }
 }
+
+/* ───────── On My Mind sticky note (in-scene) ───────── */
+/* The icon sits next to the name on each peer's tag. Because peer-stage
+   has pointer-events: none, we re-enable it just on the icon + popover.
+   Click pops a small preview with "see more →" that hands off to the
+   PeopleSheet for the full markdown view. */
+.memo-note-icon {
+  position: absolute;
+  top: 2px;
+  left: calc(50% + 16px);
+  appearance: none;
+  cursor: pointer;
+  pointer-events: auto;
+  width: 16px;
+  height: 16px;
+  padding: 3px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: #fff6c2;
+  color: #fff6c2;
+  border: 1px solid rgba(0, 0, 0, 0.22);
+}
+.memo-note-icon svg { width: 100%; height: 100%; display: block; }
+.memo-note-icon.is-me { background: #d6f0c2; color: #d6f0c2; }
+.memo-note-icon:hover { filter: brightness(1.06); }
+.memo-note-icon.open { filter: brightness(0.92); }
+
+.memo-note-backdrop {
+  position: absolute;
+  inset: -50vh -50vw;
+  z-index: 210;
+}
+
+.memo-note-preview {
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  margin-bottom: 8px;
+  transform: translateX(-50%);
+  z-index: 245;
+  pointer-events: auto;
+  width: 200px;
+  background: var(--surface);
+  color: var(--fg);
+  border: var(--border-w) solid var(--fg);
+  box-shadow: var(--shadow-hard);
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  text-align: left;
+}
+.memo-note-preview-label {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: var(--upper);
+  letter-spacing: var(--tracking);
+  color: var(--muted);
+}
+.memo-note-preview-rendered {
+  font-size: 12px;
+  line-height: 1.4;
+  max-height: 7.5em;
+  overflow: hidden;
+  position: relative;
+  /* Fade the bottom so a cut-off long memo doesn't look truncated abruptly. */
+  mask-image: linear-gradient(180deg, #000 70%, transparent 100%);
+  -webkit-mask-image: linear-gradient(180deg, #000 70%, transparent 100%);
+}
+/* Tighten the inherited .memo-rendered spacing inside the small popover. */
+.memo-note-preview-rendered p { margin: 0 0 4px; font-size: 12px; }
+.memo-note-preview-rendered p:last-child { margin-bottom: 0; }
+.memo-note-preview-rendered h1,
+.memo-note-preview-rendered h2,
+.memo-note-preview-rendered h3 {
+  font-size: 13px;
+  margin: 4px 0 2px;
+}
+.memo-note-preview-rendered ul,
+.memo-note-preview-rendered ol { margin: 0 0 4px; padding-left: 18px; }
+.memo-note-preview-rendered pre { padding: 4px; }
+.memo-note-more {
+  appearance: none;
+  cursor: pointer;
+  align-self: flex-end;
+  margin-top: 2px;
+  padding: 4px 10px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: var(--upper);
+  letter-spacing: var(--tracking);
+  background: var(--fg);
+  color: var(--bg);
+  border: var(--border-w) solid var(--fg);
+}
+.memo-note-more:active { transform: translate(1px, 1px); }
 
 /* Ambience overlays */
 .ambient-overlay {
@@ -1329,13 +1435,18 @@ input, textarea, select { font-size: 16px; }
 /* People sheet rows */
 .person-row {
   display: flex;
-  align-items: center;
-  gap: 12px;
+  flex-direction: column;
+  gap: 8px;
   padding: 10px 12px;
   background: var(--surface);
   border: var(--border-w) solid var(--scene-line);
 }
 .person-row + .person-row { margin-top: 10px; }
+.person-row-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
 .person-row .name {
   font-family: var(--font-body);
   font-size: 15px;
@@ -1368,6 +1479,144 @@ input, textarea, select { font-size: 16px; }
   color: var(--bg);
   background: var(--fg);
   border: var(--border-w) solid var(--fg);
+}
+
+/* ───────── On My Mind memo block ───────── */
+.memo-block {
+  border-top: var(--border-w) dashed var(--scene-line);
+  padding-top: 8px;
+}
+.memo-head {
+  appearance: none;
+  cursor: pointer;
+  width: 100%;
+  background: transparent;
+  border: 0;
+  padding: 2px 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  text-align: left;
+  color: inherit;
+}
+.memo-glyph {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--muted);
+  width: 10px;
+}
+.memo-label {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: var(--upper);
+  letter-spacing: var(--tracking);
+  color: var(--muted);
+}
+.memo-peek {
+  font-family: var(--font-body);
+  font-size: 12px;
+  color: var(--fg);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+  min-width: 0;
+}
+.memo-peek-empty { color: var(--muted); font-style: italic; }
+.memo-body {
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.memo-rendered {
+  font-family: var(--font-body);
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--fg);
+}
+.memo-rendered p { margin: 0 0 8px; }
+.memo-rendered p:last-child { margin-bottom: 0; }
+.memo-rendered h1,
+.memo-rendered h2,
+.memo-rendered h3 {
+  font-family: var(--font-display);
+  font-weight: var(--display-weight);
+  font-size: 15px;
+  margin: 8px 0 4px;
+}
+.memo-rendered ul,
+.memo-rendered ol { margin: 0 0 8px; padding-left: 20px; }
+.memo-rendered li { margin-bottom: 2px; }
+.memo-rendered code {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  background: var(--surface-2);
+  padding: 1px 4px;
+  border: var(--border-w) solid var(--scene-line);
+}
+.memo-rendered pre {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  background: var(--surface-2);
+  padding: 8px;
+  border: var(--border-w) solid var(--scene-line);
+  overflow-x: auto;
+}
+.memo-rendered pre code { background: none; padding: 0; border: 0; }
+.memo-rendered a { color: var(--fg); text-decoration: underline; }
+.memo-rendered blockquote {
+  border-left: 3px solid var(--scene-line);
+  padding-left: 10px;
+  color: var(--muted);
+  margin: 0 0 8px;
+}
+.memo-empty {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--muted);
+  font-style: italic;
+}
+.memo-tabs { display: flex; gap: 6px; }
+.memo-tab {
+  appearance: none;
+  cursor: pointer;
+  padding: 4px 10px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: var(--upper);
+  letter-spacing: var(--tracking);
+  background: transparent;
+  color: var(--muted);
+  border: var(--border-w) solid var(--scene-line);
+}
+.memo-tab.selected { background: var(--fg); color: var(--bg); border-color: var(--fg); }
+.memo-editor {
+  appearance: none;
+  width: 100%;
+  resize: vertical;
+  min-height: 100px;
+  padding: 8px;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--fg);
+  background: var(--surface-2);
+  border: var(--border-w) solid var(--scene-line);
+  border-radius: 0;
+}
+.memo-editor:focus { outline: none; border-color: var(--fg); }
+.memo-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.memo-counter {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--muted);
 }
 
 /* Music sheet (Spotify-skinned). */

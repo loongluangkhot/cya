@@ -47,6 +47,8 @@ export interface User {
   x: number;
   y: number;
   direction: Direction;
+  /** "On My Mind" memo — markdown text the user carries between rooms. */
+  memo: string;
 }
 
 // @sync: backend/main.py:ChatMessage
@@ -95,6 +97,7 @@ export interface UserUpdatedPayload {
   character?: CharacterId;
   name?: string;
   color?: ColorId;
+  memo?: string;
 }
 
 export interface BubbleState {
@@ -127,6 +130,7 @@ export interface ClientToServerEvents {
       name: string;
       character: CharacterId;
       color: ColorId;
+      memo: string;
     },
     ack?: (res: JoinAck) => void,
   ) => void;
@@ -135,6 +139,7 @@ export interface ClientToServerEvents {
   updateCharacter: (payload: { character: CharacterId }) => void;
   updateColor: (payload: { color: ColorId }) => void;
   updateName: (payload: { name: string }) => void;
+  updateMemo: (payload: { memo: string }) => void;
   updateAmbient: (payload: Partial<Ambient>) => void;
   updatePlayback: (payload: {
     trackUri: string | null;

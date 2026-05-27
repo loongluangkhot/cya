@@ -23,6 +23,7 @@ class JoinPayload(TypedDict, total=False):
     name: str
     character: str
     color: str
+    memo: str
 
 
 class MovePayload(TypedDict, total=False):
@@ -41,6 +42,10 @@ class UpdateNamePayload(TypedDict, total=False):
 
 class UpdateColorPayload(TypedDict, total=False):
     color: str
+
+
+class UpdateMemoPayload(TypedDict, total=False):
+    memo: str
 
 
 class UpdatePlaybackPayload(TypedDict, total=False):

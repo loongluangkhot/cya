@@ -1,4 +1,7 @@
 import { useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
+import ReactMarkdown from 'react-markdown';
+import remarkBreaks from 'remark-breaks';
+import remarkGfm from 'remark-gfm';
 import { IsoBackdrop } from './IsoBackdrop';
 import {
   ISO_GRID,
@@ -18,11 +21,22 @@ const WALK_MS_OTHER = 1100;
 interface PeerOnIsoProps {
   peer: User;
   isMe: boolean;
+  previewOpen: boolean;
+  onTogglePreview: () => void;
+  onSeeMore: () => void;
 }
 
-function PeerOnIso({ peer, isMe }: PeerOnIsoProps) {
+function PeerOnIso({
+  peer,
+  isMe,
+  previewOpen,
+  onTogglePreview,
+  onSeeMore,
+}: PeerOnIsoProps) {
   const dur = isMe ? WALK_MS_ME : WALK_MS_OTHER;
   const { x, y } = isoFromPct(peer.x, peer.y);
+  const hasMemo = peer.memo.trim().length > 0;
+
   return (
     <div
       className="peer-stage"
@@ -30,10 +44,52 @@ function PeerOnIso({ peer, isMe }: PeerOnIsoProps) {
         top: 'var(--iso-origin-y, 32%)',
         transform: `translate3d(calc(-50% + ${x}px), calc(-82% + ${y}px), 0)`,
         transition: `transform ${dur}ms linear`,
-        zIndex: 50 + Math.round(peer.y),
+        zIndex: previewOpen ? 240 : 50 + Math.round(peer.y),
       }}
     >
-      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3, position: 'relative' }}>
+      <div className="peer-stage-inner">
+        {previewOpen && (
+          <div
+            className="memo-note-preview"
+            onClick={(e) => e.stopPropagation()}
+            onPointerDown={(e) => e.stopPropagation()}
+          >
+            <div className="memo-note-preview-label">on my mind</div>
+            <div className="memo-note-preview-rendered memo-rendered">
+              <ReactMarkdown remarkPlugins={[remarkGfm, remarkBreaks]}>
+                {peer.memo}
+              </ReactMarkdown>
+            </div>
+            <button
+              type="button"
+              className="memo-note-more"
+              onClick={(e) => {
+                e.stopPropagation();
+                onSeeMore();
+              }}
+            >
+              see more →
+            </button>
+          </div>
+        )}
+        {hasMemo && (
+          <button
+            type="button"
+            className={`memo-note-icon${isMe ? ' is-me' : ''}${previewOpen ? ' open' : ''}`}
+            aria-label={`${peer.name}'s memo`}
+            onClick={(e) => {
+              e.stopPropagation();
+              onTogglePreview();
+            }}
+            onPointerDown={(e) => e.stopPropagation()}
+          >
+            <svg viewBox="0 0 16 16" aria-hidden="true">
+              <path d="M2 2 H11 L14 5 V14 H2 Z" fill="currentColor" stroke="rgba(0,0,0,0.35)" strokeWidth="1" strokeLinejoin="miter" />
+              <path d="M11 2 V5 H14" fill="none" stroke="rgba(0,0,0,0.35)" strokeWidth="1" />
+              <path d="M4.5 8 H10 M4.5 10.5 H9" stroke="rgba(0,0,0,0.45)" strokeWidth="1" strokeLinecap="square" />
+            </svg>
+          </button>
+        )}
         <div className="peer-shadow" />
         <PixelCharacter character={peer.character} color={colorHex(peer.color)} scale={3} />
         <div className={`peer-tag${isMe ? ' is-me' : ''}`}>
@@ -73,17 +129,22 @@ function SpeechBubble({ peer, text, isMe }: SpeechBubbleProps) {
   );
 }
 
+
 interface IsoSceneProps {
   peers: User[];
   meId: string | null;
   bubbles: Record<string, BubbleState>;
   room: AmbientRoom;
+  onOpenMemo: (peerId: string) => void;
 }
 
-export default function IsoScene({ peers, meId, bubbles, room }: IsoSceneProps) {
+export default function IsoScene({ peers, meId, bubbles, room, onOpenMemo }: IsoSceneProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [manualPan, setManualPan] = useState({ x: 0, y: 0 });
   const [dragging, setDragging] = useState(false);
+  // Which peer's memo popover is currently shown above the scene. A
+  // transparent backdrop dismisses on any outside click.
+  const [previewMemoId, setPreviewMemoId] = useState<string | null>(null);
   const dragRef = useRef<{
     startX: number;
     startY: number;
@@ -130,6 +191,8 @@ export default function IsoScene({ peers, meId, bubbles, room }: IsoSceneProps) 
     if (!d.moved && Math.hypot(dx, dy) > 5) {
       d.moved = true;
       setDragging(true);
+      // Cancel any open memo popover once the user commits to a pan.
+      setPreviewMemoId(null);
     }
     if (d.moved) {
       setManualPan({ x: d.panX + dx, y: d.panY + dy });
@@ -180,8 +243,27 @@ export default function IsoScene({ peers, meId, bubbles, room }: IsoSceneProps) 
           <IsoBackdrop room={room} />
         </svg>
 
+        {previewMemoId !== null && (
+          <div
+            className="memo-note-backdrop"
+            onPointerDown={() => setPreviewMemoId(null)}
+          />
+        )}
+
         {sortedPeers.map((p) => (
-          <PeerOnIso key={p.id} peer={p} isMe={p.id === meId} />
+          <PeerOnIso
+            key={p.id}
+            peer={p}
+            isMe={p.id === meId}
+            previewOpen={previewMemoId === p.id}
+            onTogglePreview={() =>
+              setPreviewMemoId((cur) => (cur === p.id ? null : p.id))
+            }
+            onSeeMore={() => {
+              setPreviewMemoId(null);
+              onOpenMemo(p.id);
+            }}
+          />
         ))}
 
         {peers.map((p) => {

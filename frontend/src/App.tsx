@@ -24,7 +24,10 @@ function validateIdentity(parsed: unknown): Identity | null {
     typeof (parsed as Identity).color === 'string' &&
     typeof (parsed as Identity).character === 'string'
   ) {
-    return parsed as Identity;
+    // Legacy identities (pre-memo) get migrated with an empty memo.
+    const memo =
+      typeof (parsed as Identity).memo === 'string' ? (parsed as Identity).memo : '';
+    return { ...(parsed as Identity), memo };
   }
   return null;
 }

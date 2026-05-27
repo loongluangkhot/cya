@@ -44,6 +44,7 @@ export interface UseRoomStateResult {
   queue: string[];
   trackMeta: Record<string, { art: string; title: string }>;
   sendMessage: (text: string) => void;
+  updateMemo: (memo: string) => void;
   changeAmbient: (next: Partial<Ambient>) => void;
   changePlayback: (next: {
     trackUri: string | null;
@@ -116,6 +117,7 @@ export function useRoomState({ onToast }: UseRoomStateOpts): UseRoomStateResult 
       character?: CharacterId;
       name?: string;
       color?: ColorId;
+      memo?: string;
     }) {
       setUsers((prev) =>
         prev.map((p) => {
@@ -125,6 +127,7 @@ export function useRoomState({ onToast }: UseRoomStateOpts): UseRoomStateResult 
             ...(payload.character !== undefined && { character: payload.character }),
             ...(payload.name !== undefined && { name: payload.name }),
             ...(payload.color !== undefined && { color: payload.color }),
+            ...(payload.memo !== undefined && { memo: payload.memo }),
           };
         }),
       );
@@ -252,6 +255,14 @@ export function useRoomState({ onToast }: UseRoomStateOpts): UseRoomStateResult 
     if (!t) return;
     socket.emit('chat', { text: t });
   }
+  function updateMemo(memo: string) {
+    // Optimistic update of the local user's memo — server will echo it back
+    // via userUpdated, which will re-confirm.
+    setUsers((prev) =>
+      prev.map((p) => (p.id === meRef.current ? { ...p, memo } : p)),
+    );
+    socket.emit('updateMemo', { memo });
+  }
   function changeAmbient(next: Partial<Ambient>) {
     setAmbient((cur) => ({ ...cur, ...next }));
     socket.emit('updateAmbient', next);
@@ -320,6 +331,7 @@ export function useRoomState({ onToast }: UseRoomStateOpts): UseRoomStateResult 
     queue,
     trackMeta,
     sendMessage,
+    updateMemo,
     changeAmbient,
     changePlayback,
     addToQueue,

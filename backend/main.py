@@ -30,6 +30,7 @@ from payloads import (
     UpdateAmbientPayload,
     UpdateCharacterPayload,
     UpdateColorPayload,
+    UpdateMemoPayload,
     UpdateNamePayload,
     UpdatePlaybackPayload,
 )
@@ -40,6 +41,7 @@ ROOM_HEIGHT = 720
 MAX_HISTORY = 100
 NAME_MAX = 20
 MSG_MAX = 200
+MEMO_MAX = 1000
 # Grace window after the last user disconnects before the room is evicted.
 # Long enough that the Spotify OAuth round-trip (redirect → consent →
 # callback → reconnect) doesn't lose the room.
@@ -62,6 +64,9 @@ class User:
     x: float
     y: float
     direction: str
+    # "On My Mind" memo — markdown text the user carries between rooms.
+    # Public to everyone in whichever room they're currently in.
+    memo: str = ""
 
 
 # @sync: frontend/src/types.ts:ChatMessage
@@ -249,8 +254,14 @@ async def _update_user_field(
     *,
     max_len: int,
     strip: bool = False,
+    allow_empty: bool = False,
 ) -> None:
-    """Sanitize a payload string and assign it to user.<key>, then broadcast."""
+    """Sanitize a payload string and assign it to user.<key>, then broadcast.
+
+    ``allow_empty`` lets memo / similar clearable fields go back to ''
+    without short-circuiting; the default behaviour (for name/character/
+    color) is to ignore empty payloads so a typo doesn't blank a field.
+    """
     room = await _current_room(sid)
     if room is None:
         return
@@ -258,7 +269,7 @@ async def _update_user_field(
     if user is None:
         return
     safe = _safe_string(payload, key, max_len=max_len, strip=strip)
-    if not safe:
+    if not safe and not allow_empty:
         return
     setattr(user, key, safe)
     await sio.emit("userUpdated", {"id": sid, key: safe}, room=room.id)
@@ -283,6 +294,7 @@ async def on_join(sid: str, payload: JoinPayload) -> dict[str, Any]:
     )
     safe_char = _safe_string(payload, "character", default="chef", max_len=40)
     safe_color = _safe_string(payload, "color", default="leaf", max_len=40)
+    safe_memo = _safe_string(payload, "memo", max_len=MEMO_MAX)
 
     x, y = random_spawn()
     user = User(
@@ -293,6 +305,7 @@ async def on_join(sid: str, payload: JoinPayload) -> dict[str, Any]:
         x=x,
         y=y,
         direction="right",
+        memo=safe_memo,
     )
     room.users[sid] = user
 
@@ -342,6 +355,12 @@ async def on_update_character(sid: str, payload: UpdateCharacterPayload) -> None
 @sio.on("updateName")
 async def on_update_name(sid: str, payload: UpdateNamePayload) -> None:
     await _update_user_field(sid, payload, "name", max_len=NAME_MAX, strip=True)
+
+
+@sio.on("updateMemo")
+async def on_update_memo(sid: str, payload: UpdateMemoPayload) -> None:
+    # Memo is clearable — empty string is a legitimate value.
+    await _update_user_field(sid, payload, "memo", max_len=MEMO_MAX, allow_empty=True)
 
 
 def _clean_uri(raw: Any) -> str | None:

@@ -23,6 +23,8 @@ export interface Identity {
   name: string;
   color: ColorId;
   character: CharacterId;
+  /** "On My Mind" memo — markdown, carried between rooms. May be ''. */
+  memo: string;
 }
 
 interface SetupProps {
@@ -52,7 +54,8 @@ export function SetupScreen({ initial, onDone, onCancel, submitLabel }: SetupPro
   function submit(e: FormEvent) {
     e.preventDefault();
     if (!canSave) return;
-    onDone({ name: name.trim(), color, character });
+    // Memo isn't editable from setup — preserve whatever the user already had.
+    onDone({ name: name.trim(), color, character, memo: initial?.memo ?? '' });
   }
 
   return (
