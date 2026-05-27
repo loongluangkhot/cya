@@ -53,6 +53,14 @@ class AddToQueuePayload(TypedDict, total=False):
     uri: str
 
 
+class AddManyToQueuePayload(TypedDict, total=False):
+    uris: list[str]
+
+
+class PlayCollectionPayload(TypedDict, total=False):
+    uris: list[str]
+
+
 class RemoveFromQueuePayload(TypedDict, total=False):
     uri: str
     index: int

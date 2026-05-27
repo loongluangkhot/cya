@@ -49,6 +49,8 @@ export default function Room({ roomId, onEditMe, onLeave }: RoomProps) {
     changeAmbient,
     changePlayback,
     addToQueue,
+    addManyToQueue,
+    playCollection,
     removeFromQueue,
     advanceQueue,
     clearQueue,
@@ -131,6 +133,8 @@ export default function Room({ roomId, onEditMe, onLeave }: RoomProps) {
         queue={queue}
         onPlaybackChange={changePlayback}
         onAddToQueue={addToQueue}
+        onAddManyToQueue={addManyToQueue}
+        onPlayCollection={playCollection}
         onRemoveFromQueue={removeFromQueue}
         onAdvanceQueue={advanceQueue}
         onClearQueue={clearQueue}
@@ -566,6 +570,8 @@ function MusicSheet({
   queue,
   onPlaybackChange,
   onAddToQueue,
+  onAddManyToQueue,
+  onPlayCollection,
   onRemoveFromQueue,
   onAdvanceQueue,
   onClearQueue,
@@ -576,6 +582,8 @@ function MusicSheet({
   queue: string[];
   onPlaybackChange: (next: { trackUri: string | null; isPlaying: boolean; positionMs: number }) => void;
   onAddToQueue: (uri: string) => void;
+  onAddManyToQueue: (uris: string[]) => void;
+  onPlayCollection: (uris: string[]) => void;
   onRemoveFromQueue: (uri: string, index: number) => void;
   onAdvanceQueue: (afterTrackUri: string | null) => void;
   onClearQueue: () => void;
@@ -600,6 +608,8 @@ function MusicSheet({
           queue={queue}
           onLocalChange={onPlaybackChange}
           onAddToQueue={onAddToQueue}
+          onAddManyToQueue={onAddManyToQueue}
+          onPlayCollection={onPlayCollection}
           onRemoveFromQueue={onRemoveFromQueue}
           onAdvanceQueue={onAdvanceQueue}
           onClearQueue={onClearQueue}

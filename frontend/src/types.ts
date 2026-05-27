@@ -142,6 +142,8 @@ export interface ClientToServerEvents {
     positionMs: number;
   }) => void;
   addToQueue: (payload: { uri: string }) => void;
+  addManyToQueue: (payload: { uris: string[] }) => void;
+  playCollection: (payload: { uris: string[] }) => void;
   removeFromQueue: (payload: { uri: string; index?: number }) => void;
   advanceQueue: (payload: { afterTrackUri: string | null }) => void;
   clearQueue: () => void;

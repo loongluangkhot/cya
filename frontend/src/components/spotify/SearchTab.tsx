@@ -12,6 +12,8 @@ export function SearchTab({
   flash,
   onPlay,
   onAddToQueue,
+  onPlayCollection,
+  onQueueCollection,
 }: {
   state: SearchState;
   setState: (updater: (prev: SearchState) => SearchState) => void;
@@ -20,6 +22,8 @@ export function SearchTab({
   flash: Flash;
   onPlay: (uri: string) => void;
   onAddToQueue: (uri: string) => void;
+  onPlayCollection: (flashKey: string, uris: string[]) => void;
+  onQueueCollection: (flashKey: string, uris: string[]) => void;
 }) {
   const { query, lastSearchedQuery, results, loading, error: err } = state;
 
@@ -78,6 +82,8 @@ export function SearchTab({
         flash={flash}
         onPlay={onPlay}
         onAddToQueue={onAddToQueue}
+        onPlayCollection={onPlayCollection}
+        onQueueCollection={onQueueCollection}
       />
     );
   }
@@ -110,7 +116,14 @@ export function SearchTab({
             <>
               <div className="music-section-label">albums</div>
               {results.albums.map((a) => (
-                <AlbumRow key={a.id} album={a} onOpen={() => setDrill({ kind: 'album', id: a.id, name: a.name })} />
+                <AlbumRow
+                  key={a.id}
+                  album={a}
+                  flash={flash}
+                  onOpen={() => setDrill({ kind: 'album', id: a.id, name: a.name })}
+                  onPlayCollection={onPlayCollection}
+                  onQueueCollection={onQueueCollection}
+                />
               ))}
             </>
           )}
@@ -118,7 +131,14 @@ export function SearchTab({
             <>
               <div className="music-section-label">playlists</div>
               {results.playlists.map((p) => (
-                <PlaylistRow key={p.id} playlist={p} onOpen={() => setDrill({ kind: 'playlist', id: p.id, name: p.name, ownerId: p.owner?.id })} />
+                <PlaylistRow
+                  key={p.id}
+                  playlist={p}
+                  flash={flash}
+                  onOpen={() => setDrill({ kind: 'playlist', id: p.id, name: p.name, ownerId: p.owner?.id })}
+                  onPlayCollection={onPlayCollection}
+                  onQueueCollection={onQueueCollection}
+                />
               ))}
             </>
           )}

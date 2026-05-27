@@ -51,10 +51,14 @@ export interface UseRoomStateResult {
     positionMs: number;
   }) => void;
   addToQueue: (uri: string) => void;
+  addManyToQueue: (uris: string[]) => void;
+  playCollection: (uris: string[]) => void;
   removeFromQueue: (uri: string, index: number) => void;
   advanceQueue: (afterTrackUri: string | null) => void;
   clearQueue: () => void;
 }
+
+const QUEUE_MAX = 200;
 
 export function useRoomState({ onToast }: UseRoomStateOpts): UseRoomStateResult {
   const [meId, setMeId] = useState<string | null>(null);
@@ -269,6 +273,23 @@ export function useRoomState({ onToast }: UseRoomStateOpts): UseRoomStateResult 
     setQueue((q) => [...q, uri]);
     socket.emit('addToQueue', { uri });
   }
+  function addManyToQueue(uris: string[]) {
+    if (uris.length === 0) return;
+    setQueue((q) => [...q, ...uris].slice(0, QUEUE_MAX));
+    socket.emit('addManyToQueue', { uris });
+  }
+  function playCollection(uris: string[]) {
+    if (uris.length === 0) return;
+    const [first, ...rest] = uris;
+    setPlayback({
+      trackUri: first,
+      isPlaying: true,
+      positionMs: 0,
+      positionUpdatedAt: Date.now(),
+    });
+    setQueue(rest.slice(0, QUEUE_MAX));
+    socket.emit('playCollection', { uris });
+  }
   function removeFromQueue(uri: string, index: number) {
     setQueue((q) => {
       if (q[index] === uri) {
@@ -302,6 +323,8 @@ export function useRoomState({ onToast }: UseRoomStateOpts): UseRoomStateResult 
     changeAmbient,
     changePlayback,
     addToQueue,
+    addManyToQueue,
+    playCollection,
     removeFromQueue,
     advanceQueue,
     clearQueue,

@@ -1543,23 +1543,33 @@ input, textarea, select { font-size: 16px; }
   background: var(--fg);
   color: var(--bg);
 }
+.row-icon-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
-.spotify-tile {
+/* Click region inside a CollectionRow that drills into the playlist/album
+   track list. Sits next to .spotify-row-actions; styled as bare text so the
+   parent .spotify-row provides the visible card. */
+.spotify-row-open {
   appearance: none;
   cursor: pointer;
-  text-align: left;
-  display: block;
   background: transparent;
   border: 0;
   padding: 0;
-  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1;
+  min-width: 0;
+  text-align: left;
+  color: inherit;
 }
-/* Match the spacing between consecutive track rows so tracks, albums,
-   and playlists all have a consistent 6px gap. */
-.spotify-tile + .spotify-tile,
-.spotify-row + .spotify-tile,
-.spotify-tile + .spotify-row { margin-top: 6px; }
-.spotify-tile .spotify-row { width: 100%; }
+
+/* DrillView title + bulk actions sit on one row. */
+.drill-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+}
 
 .music-back {
   appearance: none;

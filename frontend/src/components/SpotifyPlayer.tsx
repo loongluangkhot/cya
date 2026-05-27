@@ -12,6 +12,8 @@ interface SpotifyPlayerProps {
   queue: string[];
   onLocalChange: (next: { trackUri: string | null; isPlaying: boolean; positionMs: number }) => void;
   onAddToQueue: (uri: string) => void;
+  onAddManyToQueue: (uris: string[]) => void;
+  onPlayCollection: (uris: string[]) => void;
   onRemoveFromQueue: (uri: string, index: number) => void;
   onAdvanceQueue: (afterTrackUri: string | null) => void;
   onClearQueue: () => void;
@@ -22,6 +24,8 @@ export default function SpotifyPlayer({
   queue,
   onLocalChange,
   onAddToQueue,
+  onAddManyToQueue,
+  onPlayCollection,
   onRemoveFromQueue,
   onAdvanceQueue,
   onClearQueue,
@@ -35,10 +39,21 @@ export default function SpotifyPlayer({
     flash,
     playUri,
     queueUri,
+    playCollection,
+    queueCollection,
     togglePlay,
+    restart,
     next,
     disconnectSpotify,
-  } = useSpotifyPlayer({ playback, queue, onLocalChange, onAddToQueue, onAdvanceQueue });
+  } = useSpotifyPlayer({
+    playback,
+    queue,
+    onLocalChange,
+    onAddToQueue,
+    onAddManyToQueue,
+    onPlayCollection,
+    onAdvanceQueue,
+  });
 
   const [tab, setTab] = useState<Tab>('now');
   const [drill, setDrill] = useState<Drill>(null);
@@ -115,6 +130,7 @@ export default function SpotifyPlayer({
           flash={flash}
           onPlay={playUri}
           onTogglePlay={togglePlay}
+          onRestart={restart}
           onNext={next}
           onRemoveFromQueue={onRemoveFromQueue}
           canControl={status === 'ready'}
@@ -130,6 +146,8 @@ export default function SpotifyPlayer({
           flash={flash}
           onPlay={playUri}
           onAddToQueue={queueUri}
+          onPlayCollection={playCollection}
+          onQueueCollection={queueCollection}
         />
       )}
 
@@ -140,6 +158,8 @@ export default function SpotifyPlayer({
           flash={flash}
           onPlay={playUri}
           onAddToQueue={queueUri}
+          onPlayCollection={playCollection}
+          onQueueCollection={queueCollection}
         />
       )}
 

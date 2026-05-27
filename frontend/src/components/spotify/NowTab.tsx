@@ -11,6 +11,7 @@ export function NowTab({
   flash,
   onPlay,
   onTogglePlay,
+  onRestart,
   onNext,
   onRemoveFromQueue,
   canControl,
@@ -22,6 +23,7 @@ export function NowTab({
   flash: Flash;
   onPlay: (uri: string) => void;
   onTogglePlay: () => void;
+  onRestart: () => void;
   onNext: () => void;
   onRemoveFromQueue: (uri: string, index: number) => void;
   canControl: boolean;
@@ -55,6 +57,14 @@ export function NowTab({
           </div>
           {playback.trackUri && canControl && (
             <div className="music-now-controls">
+              <button
+                type="button"
+                className="row-icon-btn"
+                aria-label="previous"
+                onClick={onRestart}
+              >
+                <Icon name="prev" size={14} />
+              </button>
               <button
                 type="button"
                 className="row-icon-btn primary"

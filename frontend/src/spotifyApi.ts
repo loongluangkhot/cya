@@ -163,3 +163,23 @@ export function trackIdFromUri(uri: string): string | null {
   if (!uri.startsWith('spotify:track:')) return null;
   return uri.slice('spotify:track:'.length);
 }
+
+// Accepts either a web URL (open.spotify.com/{track|playlist|album}/<id>?...)
+// or a URI (spotify:{track|playlist|album}:<id>) and returns the kind + id.
+// Used for the default-autoplay configured via VITE_DEFAULT_PLAYLIST_URL.
+export type SpotifyLinkKind = 'track' | 'playlist' | 'album';
+
+export interface SpotifyLink {
+  kind: SpotifyLinkKind;
+  id: string;
+}
+
+export function parseSpotifyUrl(input: string): SpotifyLink | null {
+  const trimmed = input.trim();
+  if (!trimmed) return null;
+  const web = trimmed.match(/\/(track|playlist|album)\/([A-Za-z0-9]{22})/);
+  if (web) return { kind: web[1] as SpotifyLinkKind, id: web[2] };
+  const uri = trimmed.match(/spotify:(track|playlist|album):([A-Za-z0-9]{22})/);
+  if (uri) return { kind: uri[1] as SpotifyLinkKind, id: uri[2] };
+  return null;
+}

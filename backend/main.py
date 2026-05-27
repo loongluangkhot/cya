@@ -18,12 +18,14 @@ from payloads import (
     AMBIENT_ROOMS,
     AMBIENT_TIMES,
     AMBIENT_WEATHERS,
+    AddManyToQueuePayload,
     AddToQueuePayload,
     AdvanceQueuePayload,
     ChatPayload,
     JoinPayload,
     MovePayload,
     PlaybackSnapshot,
+    PlayCollectionPayload,
     RemoveFromQueuePayload,
     UpdateAmbientPayload,
     UpdateCharacterPayload,
@@ -373,6 +375,20 @@ async def on_update_playback(sid: str, payload: UpdatePlaybackPayload) -> None:
     )
 
 
+QUEUE_MAX = 200
+
+
+def _clean_uri_list(raw: Any) -> list[str]:
+    if not isinstance(raw, list):
+        return []
+    out: list[str] = []
+    for r in raw:
+        u = _clean_uri(r)
+        if u:
+            out.append(u)
+    return out
+
+
 @sio.on("addToQueue")
 async def on_add_to_queue(sid: str, payload: AddToQueuePayload) -> None:
     room = await _current_room(sid)
@@ -381,10 +397,49 @@ async def on_add_to_queue(sid: str, payload: AddToQueuePayload) -> None:
     uri = _clean_uri(payload.get("uri"))
     if not uri:
         return
-    if len(room.queue) >= 200:
+    if len(room.queue) >= QUEUE_MAX:
         return
     room.queue.append(uri)
     await sio.emit("queueChanged", {"queue": list(room.queue)}, room=room.id)
+
+
+@sio.on("addManyToQueue")
+async def on_add_many_to_queue(sid: str, payload: AddManyToQueuePayload) -> None:
+    """Append multiple URIs to the queue in one round-trip (capped at QUEUE_MAX)."""
+    room = await _current_room(sid)
+    if room is None:
+        return
+    new_uris = _clean_uri_list(payload.get("uris"))
+    if not new_uris:
+        return
+    available = max(0, QUEUE_MAX - len(room.queue))
+    if available == 0:
+        return
+    room.queue.extend(new_uris[:available])
+    await sio.emit("queueChanged", {"queue": list(room.queue)}, room=room.id)
+
+
+@sio.on("playCollection")
+async def on_play_collection(sid: str, payload: PlayCollectionPayload) -> None:
+    """Start playing a collection (album/playlist): first URI becomes the
+    now-playing track, the rest replace the queue. Pre-existing queue is
+    dropped — this is the bulk "play now" verb."""
+    room = await _current_room(sid)
+    if room is None:
+        return
+    cleaned = _clean_uri_list(payload.get("uris"))
+    if not cleaned:
+        return
+    first = cleaned[0]
+    # Keep total room.queue + now-playing ≤ QUEUE_MAX.
+    rest = cleaned[1:QUEUE_MAX]
+    room.track_uri = first
+    room.is_playing = True
+    room.position_ms = 0
+    room.position_updated_at = time.time() * 1000
+    room.queue = list(rest)
+    await sio.emit("queueChanged", {"queue": list(room.queue)}, room=room.id)
+    await sio.emit("playbackChanged", _playback_snapshot(room), room=room.id)
 
 
 @sio.on("removeFromQueue")

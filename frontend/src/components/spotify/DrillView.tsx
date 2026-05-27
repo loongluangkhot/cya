@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { beginSpotifyLogin } from '../../spotifyAuth';
 import { getAlbumTracks, getPlaylistTracks, type SpTrack } from '../../spotifyApi';
+import Icon from '../Icon';
 import { TrackRow } from './rows';
 import type { Drill, Flash } from './shared';
 
@@ -10,12 +11,16 @@ export function DrillView({
   flash,
   onPlay,
   onAddToQueue,
+  onPlayCollection,
+  onQueueCollection,
 }: {
   drill: NonNullable<Drill>;
   onBack: () => void;
   flash: Flash;
   onPlay: (uri: string) => void;
   onAddToQueue: (uri: string) => void;
+  onPlayCollection: (flashKey: string, uris: string[]) => void;
+  onQueueCollection: (flashKey: string, uris: string[]) => void;
 }) {
   const [tracks, setTracks] = useState<SpTrack[] | null>(null);
   const [err, setErr] = useState<string | null>(null);
@@ -60,13 +65,41 @@ export function DrillView({
     };
   }, [drill.kind, drill.id]);
 
+  const collectionUri = `spotify:${drill.kind}:${drill.id}`;
+  const flashing = flash?.uri === collectionUri;
+  const playFlash = flashing && flash?.kind === 'play';
+  const queueFlash = flashing && flash?.kind === 'queue';
+  const hasTracks = !!tracks && tracks.length > 0;
+
   return (
     <div>
       <button type="button" className="music-back" onClick={onBack}>
         ← back
       </button>
-      <div className="h-display" style={{ fontSize: 18, marginBottom: 10 }}>
-        {drill.name}
+      <div className="drill-head">
+        <div className="h-display" style={{ fontSize: 18, flex: 1, minWidth: 0 }}>
+          {drill.name}
+        </div>
+        {hasTracks && (
+          <div className="spotify-row-actions">
+            <button
+              type="button"
+              className={`row-icon-btn primary${playFlash ? ' flashing' : ''}`}
+              aria-label="play all"
+              onClick={() => onPlayCollection(collectionUri, tracks!.map((t) => t.uri))}
+            >
+              <Icon name={playFlash ? 'check' : 'play'} size={14} />
+            </button>
+            <button
+              type="button"
+              className={`row-icon-btn${queueFlash ? ' flashing' : ''}`}
+              aria-label="add all to queue"
+              onClick={() => onQueueCollection(collectionUri, tracks!.map((t) => t.uri))}
+            >
+              <Icon name={queueFlash ? 'check' : 'queue-add'} size={14} />
+            </button>
+          </div>
+        )}
       </div>
       {err && (
         <>

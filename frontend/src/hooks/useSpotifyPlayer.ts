@@ -10,7 +10,15 @@ import {
   getValidSpotifyToken,
   hasSpotifyToken,
 } from '../spotifyAuth';
-import { getTrack, trackIdFromUri, type SpTrack } from '../spotifyApi';
+import {
+  getAlbumTracks,
+  getPlaylistTracks,
+  getTrack,
+  parseSpotifyUrl,
+  trackIdFromUri,
+  type SpotifyLink,
+  type SpTrack,
+} from '../spotifyApi';
 import type { PlaybackState } from '../types';
 import {
   effectivePosition,
@@ -28,6 +36,8 @@ export interface UseSpotifyPlayerOpts {
     positionMs: number;
   }) => void;
   onAddToQueue: (uri: string) => void;
+  onAddManyToQueue: (uris: string[]) => void;
+  onPlayCollection: (uris: string[]) => void;
   onAdvanceQueue: (afterTrackUri: string | null) => void;
 }
 
@@ -42,7 +52,10 @@ export interface UseSpotifyPlayerResult {
   flash: Flash;
   playUri: (uri: string) => void;
   queueUri: (uri: string) => void;
+  playCollection: (flashKey: string, uris: string[]) => void;
+  queueCollection: (flashKey: string, uris: string[]) => void;
   togglePlay: () => void;
+  restart: () => void;
   next: () => void;
   disconnectSpotify: () => void;
 }
@@ -58,6 +71,8 @@ export function useSpotifyPlayer({
   queue,
   onLocalChange,
   onAddToQueue,
+  onAddManyToQueue,
+  onPlayCollection,
   onAdvanceQueue,
 }: UseSpotifyPlayerOpts): UseSpotifyPlayerResult {
   const [connected, setConnected] = useState(hasSpotifyToken());
@@ -337,6 +352,79 @@ export function useSpotifyPlayer({
     return false;
   }
 
+  // ────────────── Default playlist autoplay ──────────────
+  // When this user's Spotify token first becomes available and the room
+  // has no track yet, kick off the configured default playlist so the
+  // space isn't silent. We don't wait for the SDK to be ready — once it
+  // does load, applyRemote will pick up the now-set playback. Guarded by
+  // a ref so we only auto-trigger once per session.
+  const onPlayCollectionRef = useRef(onPlayCollection);
+  onPlayCollectionRef.current = onPlayCollection;
+  const defaultAutoplayedRef = useRef(false);
+  useEffect(() => {
+    // The ref guards against React StrictMode's double-invoke (and our own
+    // "only-once-per-session" semantics). We set it BEFORE awaiting the
+    // fetcher so the second strict-mode run bails — and intentionally
+    // *don't* cancel the in-flight promise on cleanup. If we cancelled, the
+    // first run's fetcher would resolve into a no-op while the second
+    // run's effect has already bailed on the ref, and music never starts.
+    if (defaultAutoplayedRef.current) return;
+    if (!connected) return;
+    if (playback.trackUri) {
+      // Someone's already playing; don't override and don't re-trigger later.
+      defaultAutoplayedRef.current = true;
+      return;
+    }
+    const raw = import.meta.env.VITE_DEFAULT_PLAYLIST_URL;
+    if (!raw) return;
+    // Accept one URL or a comma-separated list. Each entry can be a track,
+    // album, or playlist URL/URI; we concatenate the resolved track URIs in
+    // source order before playing.
+    const entries = raw
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
+    if (entries.length === 0) return;
+    const targets: SpotifyLink[] = [];
+    for (const entry of entries) {
+      const link = parseSpotifyUrl(entry);
+      if (!link) {
+        setError(`default playlist URL is malformed: ${entry}`);
+        return;
+      }
+      targets.push(link);
+    }
+    defaultAutoplayedRef.current = true;
+    // Resolve every source in parallel but keep order — Promise.all
+    // preserves the input array's order regardless of resolution order.
+    // Per-source failures (e.g. one 403'd playlist mixed in with valid
+    // tracks) get logged but don't abort the whole load.
+    Promise.all(
+      targets.map(async (t) => {
+        if (t.kind === 'track') return [`spotify:track:${t.id}`];
+        try {
+          const tracks =
+            t.kind === 'album' ? await getAlbumTracks(t.id) : await getPlaylistTracks(t.id);
+          return tracks.map((tr) => tr.uri).filter(Boolean);
+        } catch (e) {
+          const msg = (e as Error).message;
+          // eslint-disable-next-line no-console
+          console.warn(`[autoplay] ${t.kind} ${t.id} failed: ${msg}`);
+          return [] as string[];
+        }
+      }),
+    ).then((uriLists) => {
+      const uris = uriLists.flat();
+      if (uris.length === 0) {
+        setError(
+          "default playlist resolved to zero tracks — every source failed (a Spotify-curated playlist will 403 in dev mode; use one of your own).",
+        );
+        return;
+      }
+      onPlayCollectionRef.current(uris);
+    });
+  }, [connected, playback.trackUri]);
+
   // ────────────── Track cache hydration ──────────────
   // Resolve URIs (for queue + current playback) to full track info so we can
   // display names/artists/art.
@@ -412,6 +500,24 @@ export function useSpotifyPlayer({
     [onAddToQueue],
   );
 
+  const playCollection = useCallback(
+    (flashKey: string, uris: string[]) => {
+      if (uris.length === 0) return;
+      onPlayCollection(uris);
+      fireFlash(flashKey, 'play');
+    },
+    [onPlayCollection],
+  );
+
+  const queueCollection = useCallback(
+    (flashKey: string, uris: string[]) => {
+      if (uris.length === 0) return;
+      onAddManyToQueue(uris);
+      fireFlash(flashKey, 'queue');
+    },
+    [onAddManyToQueue],
+  );
+
   const togglePlay = useCallback(() => {
     if (!playback.trackUri) return;
     onLocalChange({
@@ -420,6 +526,15 @@ export function useSpotifyPlayer({
       positionMs: effectivePosition(playback),
     });
   }, [playback, onLocalChange]);
+
+  const restart = useCallback(() => {
+    if (!playback.trackUri) return;
+    onLocalChange({
+      trackUri: playback.trackUri,
+      isPlaying: true,
+      positionMs: 0,
+    });
+  }, [playback.trackUri, onLocalChange]);
 
   const next = useCallback(() => {
     onAdvanceQueue(playback.trackUri);
@@ -448,7 +563,10 @@ export function useSpotifyPlayer({
     flash,
     playUri,
     queueUri,
+    playCollection,
+    queueCollection,
     togglePlay,
+    restart,
     next,
     disconnectSpotify,
   };
