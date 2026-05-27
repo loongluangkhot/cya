@@ -134,7 +134,7 @@ function NotFound() {
   const navigate = useNavigate();
   return (
     <div className="cya-app">
-      <CenterMessage title="that page doesn't exist" subtitle="404">
+      <CenterMessage title="that page doesn't exist">
         <button type="button" className="btn" onClick={() => navigate('/')}>
           back home
         </button>

@@ -37,12 +37,10 @@ export default function SpotifyCallback() {
     });
   }, [params, navigate]);
 
-  const host = typeof window !== 'undefined' ? window.location.host : '';
-
   if (error) {
     return (
       <div className="cya-app">
-        <CenterMessage title="couldn't connect spotify" subtitle={host}>
+        <CenterMessage title="couldn't connect spotify">
           <div className="body-text" style={{ marginBottom: 16 }}>{error}</div>
           <button type="button" className="btn" onClick={() => navigate('/', { replace: true })}>
             back home
@@ -54,7 +52,7 @@ export default function SpotifyCallback() {
 
   return (
     <div className="cya-app">
-      <CenterMessage title="connecting spotify…" subtitle={host} />
+      <CenterMessage title="connecting spotify…" />
     </div>
   );
 }

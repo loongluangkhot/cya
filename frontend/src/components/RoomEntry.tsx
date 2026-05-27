@@ -152,12 +152,10 @@ export default function RoomEntry() {
     };
   }, [phase, roomCheck, roomId]);
 
-  const host = typeof window !== 'undefined' ? window.location.host : '';
-
   if (roomCheck === 'checking') {
     return (
       <div className="cya-app">
-        <CenterMessage title="checking room…" subtitle={host} />
+        <CenterMessage title="checking room…" />
       </div>
     );
   }
@@ -165,7 +163,7 @@ export default function RoomEntry() {
   if (roomCheck === 'not_found') {
     return (
       <div className="cya-app">
-        <CenterMessage title="this room doesn't exist anymore" subtitle={host}>
+        <CenterMessage title="this room doesn't exist anymore">
           <button type="button" className="btn" onClick={() => navigate('/')}>
             back home
           </button>

@@ -3,15 +3,25 @@ import Wordmark from '../Wordmark';
 
 interface CenterMessageProps {
   title: string;
-  subtitle: string;
   children?: ReactNode;
 }
 
-export function CenterMessage({ title, subtitle, children }: CenterMessageProps) {
+export function CenterMessage({ title, children }: CenterMessageProps) {
   return (
-    <div className="center-screen">
-      <Wordmark size={48} sub={subtitle} />
-      <div className="h-display" style={{ fontSize: 18 }}>{title}</div>
+    <div className="screen">
+      <div className="status-bar-space" />
+      <div
+        style={{
+          flex: 1,
+          display: 'flex',
+          flexDirection: 'column',
+          justifyContent: 'center',
+          gap: 14,
+        }}
+      >
+        <Wordmark size={48} />
+        <div className="h-display" style={{ fontSize: 18 }}>{title}</div>
+      </div>
       {children}
     </div>
   );
