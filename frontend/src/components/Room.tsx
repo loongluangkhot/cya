@@ -359,6 +359,7 @@ export default function Room({ roomId, onEditMe, onLeave }: RoomProps) {
         onClose={() => setSheet(null)}
         peers={users}
         meId={meId}
+        onEditMe={onEditMe}
       />
       <ChatLogSheet
         open={sheet === 'chat'}
@@ -379,14 +380,6 @@ export default function Room({ roomId, onEditMe, onLeave }: RoomProps) {
         onChange={changeAmbient}
       />
 
-      <button
-        type="button"
-        className="text-link"
-        onClick={onEditMe}
-        style={{ position: 'absolute', left: 12, top: 12, zIndex: 110 }}
-      >
-        edit me
-      </button>
     </div>
   );
 }
@@ -655,20 +648,41 @@ function Sheet({ open, title, onClose, children, tall }: SheetProps) {
   );
 }
 
-function PeopleSheet({ open, onClose, peers, meId }: { open: boolean; onClose: () => void; peers: User[]; meId: string | null }) {
+function PeopleSheet({
+  open,
+  onClose,
+  peers,
+  meId,
+  onEditMe,
+}: {
+  open: boolean;
+  onClose: () => void;
+  peers: User[];
+  meId: string | null;
+  onEditMe: () => void;
+}) {
   return (
     <Sheet open={open} onClose={onClose} title={`${peers.length} in the room`}>
       <div>
-        {peers.map((p) => (
-          <div key={p.id} className="person-row">
-            <PixelCharacter character={p.character} color={colorHex(p.color)} scale={3} />
-            <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
-              <div className="name">{p.name}{p.id === meId ? ' (you)' : ''}</div>
-              <div className="role">{p.id === meId ? 'this is you' : 'here now'}</div>
+        {peers.map((p) => {
+          const isMe = p.id === meId;
+          return (
+            <div key={p.id} className="person-row">
+              <PixelCharacter character={p.character} color={colorHex(p.color)} scale={3} />
+              <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
+                <div className="name">{p.name}{isMe ? ' (you)' : ''}</div>
+                <div className="role">{isMe ? 'this is you' : 'here now'}</div>
+              </div>
+              {isMe ? (
+                <button type="button" className="person-edit" onClick={onEditMe}>
+                  edit
+                </button>
+              ) : (
+                <span className="live-dot" />
+              )}
             </div>
-            <span className="live-dot" />
-          </div>
-        ))}
+          );
+        })}
       </div>
     </Sheet>
   );
