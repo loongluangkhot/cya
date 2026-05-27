@@ -12,6 +12,7 @@ import SpotifyPlayer from './SpotifyPlayer';
 import ErrorBoundary from './ErrorBoundary';
 import Icon from './Icon';
 import { MemoBlock } from './MemoBlock';
+import { effectivePosition } from './spotify/shared';
 import { colorHex } from '../characters';
 import { useToasts } from '../hooks/useToasts';
 import { useRoomState } from '../hooks/useRoomState';
@@ -80,6 +81,28 @@ export default function Room({ roomId, onEditMe, onLeave, onMemoPersist }: RoomP
     onMemoPersist(memo);
   }
 
+  // Dock chip playback controls — operate on the shared room playback
+  // state, not the local SDK. Whoever's connected applies them.
+  function dockPrev() {
+    if (!playback.trackUri) return;
+    changePlayback({
+      trackUri: playback.trackUri,
+      isPlaying: true,
+      positionMs: 0,
+    });
+  }
+  function dockTogglePlay() {
+    if (!playback.trackUri) return;
+    changePlayback({
+      trackUri: playback.trackUri,
+      isPlaying: !playback.isPlaying,
+      positionMs: effectivePosition(playback),
+    });
+  }
+  function dockNext() {
+    advanceQueue(playback.trackUri);
+  }
+
   const peersById: Record<string, User> = Object.fromEntries(users.map((u) => [u.id, u]));
 
   return (
@@ -132,6 +155,10 @@ export default function Room({ roomId, onEditMe, onLeave, onMemoPersist }: RoomP
         onOpenMusic={() => setSheet('music')}
         onOpenAmbience={() => setSheet('ambience')}
         onOpenChat={() => setSheet('chat')}
+        hasQueue={queue.length > 0}
+        onPrev={dockPrev}
+        onTogglePlay={dockTogglePlay}
+        onNext={dockNext}
       />
 
       <Toasts items={toasts} />
@@ -283,6 +310,10 @@ interface RoomDockProps {
   onOpenMusic: () => void;
   onOpenAmbience: () => void;
   onOpenChat: () => void;
+  hasQueue: boolean;
+  onPrev: () => void;
+  onTogglePlay: () => void;
+  onNext: () => void;
 }
 
 function ambientGlyph(a: Ambient): string {
@@ -306,6 +337,10 @@ function RoomDock({
   onOpenMusic,
   onOpenAmbience,
   onOpenChat,
+  hasQueue,
+  onPrev,
+  onTogglePlay,
+  onNext,
 }: RoomDockProps) {
   function submit(e: FormEvent) {
     e.preventDefault();
@@ -314,36 +349,62 @@ function RoomDock({
   return (
     <form className="dock" onSubmit={submit}>
       <div className="dock-chips">
-        <button type="button" className="dock-chip" onClick={onOpenMusic}>
-          {playback.trackUri && trackArt ? (
-            <img
-              src={trackArt}
-              className="dock-chip-art"
-              alt=""
-              style={{ objectFit: 'cover' }}
-            />
-          ) : (
-            <div
-              className="dock-chip-art"
-              style={{ background: 'linear-gradient(135deg, #2b2118 0%, #b54822 100%)' }}
-            />
+        <div className="dock-chip dock-chip-music">
+          <button type="button" className="dock-chip-open" onClick={onOpenMusic}>
+            {playback.trackUri && trackArt ? (
+              <img
+                src={trackArt}
+                className="dock-chip-art"
+                alt=""
+                style={{ objectFit: 'cover' }}
+              />
+            ) : (
+              <div
+                className="dock-chip-art"
+                style={{ background: 'linear-gradient(135deg, #2b2118 0%, #b54822 100%)' }}
+              />
+            )}
+            <div className="dock-chip-text">
+              <div className="dock-chip-title">
+                {playback.trackUri ? (trackTitle || 'now playing') : 'no track'}
+              </div>
+              <div className="dock-chip-meta">
+                {playback.trackUri
+                  ? (playback.isPlaying ? 'playing' : 'paused')
+                  : 'tap to set a track'}
+              </div>
+            </div>
+          </button>
+          {playback.trackUri && (
+            <div className="dock-chip-controls">
+              <button
+                type="button"
+                className="dock-chip-ctrl"
+                aria-label="previous"
+                onClick={onPrev}
+              >
+                <Icon name="prev" size={12} />
+              </button>
+              <button
+                type="button"
+                className="dock-chip-ctrl primary"
+                aria-label={playback.isPlaying ? 'pause' : 'play'}
+                onClick={onTogglePlay}
+              >
+                <Icon name={playback.isPlaying ? 'pause' : 'play'} size={12} />
+              </button>
+              <button
+                type="button"
+                className="dock-chip-ctrl"
+                aria-label="next"
+                onClick={onNext}
+                disabled={!hasQueue}
+              >
+                <Icon name="next" size={12} />
+              </button>
+            </div>
           )}
-          <div className="dock-chip-text">
-            <div className="dock-chip-title">
-              {playback.trackUri ? (trackTitle || 'now playing') : 'no track'}
-            </div>
-            <div className="dock-chip-meta">
-              {playback.trackUri ? (
-                <span className="dock-chip-status">
-                  <Icon name={playback.isPlaying ? 'play' : 'pause'} size={10} />
-                  {playback.isPlaying ? 'playing' : 'paused'}
-                </span>
-              ) : (
-                'tap to set a track'
-              )}
-            </div>
-          </div>
-        </button>
+        </div>
         <button type="button" className="dock-chip compact" onClick={onOpenAmbience} aria-label="ambience">
           <span className="dock-chip-glyph">{ambientGlyph(ambient)}</span>
           <span className="dock-chip-meta" style={{ fontWeight: 700 }}>{ambient.time}</span>

@@ -1280,16 +1280,51 @@ input, textarea, select { font-size: 16px; }
   width: 100%;
 }
 .dock-chip-glyph { font-size: 16px; line-height: 1; }
-.dock-chip-status {
+
+/* Music chip is a composite: the left side opens the music sheet, the
+   right side has prev/play-pause/next quick controls. The outer wrapper
+   keeps the box styling; .dock-chip-open takes the place of the original
+   single button. */
+.dock-chip-music { padding: 0; gap: 0; }
+.dock-chip-open {
+  appearance: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1;
+  min-width: 0;
+  padding: 6px;
+  background: transparent;
+  border: 0;
+  text-align: left;
+  color: inherit;
+}
+.dock-chip-controls {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding-right: 4px;
+  flex-shrink: 0;
+}
+.dock-chip-ctrl {
+  appearance: none;
+  cursor: pointer;
+  width: 24px;
+  height: 24px;
+  padding: 0;
   display: inline-flex;
   align-items: center;
-  gap: 5px;
-  line-height: 1;
+  justify-content: center;
+  background: transparent;
+  color: var(--fg);
+  border: 0;
 }
-.dock-chip-status svg {
-  flex-shrink: 0;
-  fill: currentColor;
+.dock-chip-ctrl.primary {
+  background: var(--fg);
+  color: var(--bg);
 }
+.dock-chip-ctrl:disabled { opacity: 0.35; cursor: not-allowed; }
 
 .composer {
   display: flex;

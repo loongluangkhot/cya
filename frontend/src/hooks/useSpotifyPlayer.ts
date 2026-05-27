@@ -87,6 +87,11 @@ export function useSpotifyPlayer({
   const playerRef = useRef<SDKPlayer | null>(null);
   const suppressUntilRef = useRef(0);
   const lastEndedUriRef = useRef<string | null>(null);
+  // Fallback end-of-track timer — fires (duration - position - 500ms) after
+  // each play state. Whichever signal arrives first (the SDK's paused +
+  // position=0 dip, or this timer) wins; the lastEndedUriRef guard makes
+  // the double-fire idempotent.
+  const endTimerRef = useRef<number | null>(null);
   const playbackRef = useRef(playback);
   playbackRef.current = playback;
   const onLocalChangeRef = useRef(onLocalChange);
@@ -182,6 +187,13 @@ export function useSpotifyPlayer({
           setCurrentSDKTrack(state.track_window.current_track);
           setPaused(state.paused);
 
+          // Tear down any previously-scheduled end-of-track fallback. We'll
+          // re-arm it below if the new state warrants it.
+          if (endTimerRef.current !== null) {
+            window.clearTimeout(endTimerRef.current);
+            endTimerRef.current = null;
+          }
+
           // ── Auto-advance on track end ──
           // The SDK signals end-of-track by jumping position back to 0 with
           // paused=true on the same track. Only emit once per track.
@@ -196,6 +208,27 @@ export function useSpotifyPlayer({
             return;
           }
           if (!state.paused) lastEndedUriRef.current = null;
+
+          // Belt-and-suspenders: some Spotify SDK builds don't fire the
+          // paused+position=0 event reliably (e.g. when the device hands
+          // off). Schedule a timer based on the track's remaining time
+          // and advance from there if we're still on the same track.
+          if (
+            !state.paused &&
+            state.duration > 0 &&
+            state.track_window.current_track.uri
+          ) {
+            const remaining = Math.max(0, state.duration - state.position - 500);
+            const endingUri = state.track_window.current_track.uri;
+            endTimerRef.current = window.setTimeout(() => {
+              endTimerRef.current = null;
+              const cur = playbackRef.current;
+              if (cur.trackUri !== endingUri) return;
+              if (lastEndedUriRef.current === endingUri) return;
+              lastEndedUriRef.current = endingUri;
+              onAdvanceQueueRef.current(endingUri);
+            }, remaining);
+          }
 
           // Echo local play/pause back to the room.
           if (Date.now() < suppressUntilRef.current) return;
@@ -224,6 +257,10 @@ export function useSpotifyPlayer({
       if (playerRef.current) {
         playerRef.current.disconnect();
         playerRef.current = null;
+      }
+      if (endTimerRef.current !== null) {
+        window.clearTimeout(endTimerRef.current);
+        endTimerRef.current = null;
       }
       setDeviceId(null);
     };
