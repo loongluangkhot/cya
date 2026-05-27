@@ -69,6 +69,7 @@ export interface StatePayload {
   room: RoomDimensions;
   ambient: Ambient;
   playback: PlaybackState;
+  queue: string[];
 }
 
 export interface MovePayload {
@@ -100,6 +101,7 @@ export interface ServerToClientEvents {
   chatMessage: (msg: ChatMessage) => void;
   ambientChanged: (payload: Ambient) => void;
   playbackChanged: (payload: PlaybackState) => void;
+  queueChanged: (payload: { queue: string[] }) => void;
 }
 
 export interface JoinAck {
@@ -128,6 +130,10 @@ export interface ClientToServerEvents {
     isPlaying: boolean;
     positionMs: number;
   }) => void;
+  addToQueue: (payload: { uri: string }) => void;
+  removeFromQueue: (payload: { uri: string; index?: number }) => void;
+  advanceQueue: (payload: { afterTrackUri: string | null }) => void;
+  clearQueue: () => void;
 }
 
 export interface ColorMap {

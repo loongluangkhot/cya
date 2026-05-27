@@ -1079,6 +1079,207 @@ input, textarea, select { font-size: 16px; }
 }
 .music-error { color: #c0392b; }
 
+/* ───────── Music tabs ───────── */
+
+.music-tabs {
+  display: flex;
+  border: var(--border-w) solid var(--fg);
+  margin-bottom: 16px;
+}
+.music-tab {
+  appearance: none;
+  flex: 1;
+  cursor: pointer;
+  padding: 10px 8px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: var(--upper);
+  letter-spacing: var(--tracking);
+  color: var(--fg);
+  background: var(--surface);
+  border: 0;
+  border-right: var(--border-w) solid var(--fg);
+}
+.music-tab:last-child { border-right: 0; }
+.music-tab.selected {
+  color: var(--bg);
+  background: var(--fg);
+}
+
+.music-section-label {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: var(--upper);
+  letter-spacing: var(--tracking);
+  color: var(--muted);
+  margin: 18px 0 8px;
+}
+.music-section-label:first-child { margin-top: 0; }
+
+.spotify-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px;
+  background: var(--surface);
+  border: var(--border-w) solid var(--scene-line);
+}
+.spotify-row + .spotify-row { margin-top: 6px; }
+.spotify-row-art {
+  width: 44px;
+  height: 44px;
+  flex-shrink: 0;
+  background: var(--surface-2);
+  border: var(--border-w) solid var(--fg);
+  object-fit: cover;
+  display: block;
+}
+.spotify-row-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.spotify-row-title {
+  font-family: var(--font-body);
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--fg);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.spotify-row-meta {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--muted);
+  text-transform: var(--upper);
+  letter-spacing: var(--tracking);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.spotify-row-actions {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
+}
+.row-icon-btn {
+  appearance: none;
+  cursor: pointer;
+  width: 30px;
+  height: 30px;
+  background: var(--surface);
+  border: var(--border-w) solid var(--fg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--fg);
+  padding: 0;
+}
+.row-icon-btn.primary {
+  background: var(--fg);
+  color: var(--bg);
+}
+
+.spotify-tile {
+  appearance: none;
+  cursor: pointer;
+  text-align: left;
+  display: block;
+  background: transparent;
+  border: 0;
+  padding: 0;
+  width: 100%;
+}
+.spotify-tile + .spotify-tile { margin-top: 0; }
+.spotify-tile .spotify-row { width: 100%; }
+
+.music-back {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  text-transform: var(--upper);
+  letter-spacing: var(--tracking);
+  padding: 0;
+  margin-bottom: 12px;
+  display: inline-block;
+}
+
+.queue-empty, .search-empty, .list-loading {
+  font-family: var(--font-body);
+  font-size: 13px;
+  color: var(--muted);
+  padding: 20px 0;
+  text-align: center;
+}
+
+.search-input {
+  width: 100%;
+  appearance: none;
+  padding: 12px 14px;
+  font-family: var(--font-body);
+  font-size: 16px;
+  color: var(--fg);
+  background: var(--surface);
+  border: var(--border-w) solid var(--fg);
+  outline: none;
+  margin-bottom: 14px;
+}
+
+/* Inline controls anchored to the right side of the now-playing card. */
+.music-now-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+/* Brief flash on row-action buttons after activation. */
+.row-icon-btn.flashing {
+  background: #2f8a3c;
+  border-color: #2f8a3c;
+  color: #ffffff;
+  animation: rowFlash 0.65s ease-out;
+}
+.row-icon-btn.primary.flashing { background: #2f8a3c; }
+@keyframes rowFlash {
+  0%   { transform: scale(1); }
+  35%  { transform: scale(1.18); }
+  100% { transform: scale(1); }
+}
+
+/* Subdued action footer for "clear queue" / "disconnect spotify". */
+.music-footer {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  margin-top: 24px;
+  padding-top: 14px;
+  border-top: 1px solid rgba(0, 0, 0, 0.08);
+}
+.music-footer-link {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: var(--upper);
+  letter-spacing: var(--tracking);
+  padding: 0;
+}
+.music-footer-link:hover { color: var(--fg); }
+
 /* Chat log sheet rows */
 .chat-row {
   font-family: var(--font-mono);

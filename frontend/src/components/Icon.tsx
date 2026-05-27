@@ -12,7 +12,10 @@ interface IconProps {
     | 'prev'
     | 'x'
     | 'check'
-    | 'gear';
+    | 'gear'
+    | 'plus'
+    | 'queue-add'
+    | 'trash';
   size?: number;
   color?: string;
 }
@@ -117,6 +120,26 @@ export default function Icon({ name, size = 18, color = 'currentColor' }: IconPr
         <svg {...common}>
           <circle cx="12" cy="12" r="3" />
           <path d="M19.4 15a1.7 1.7 0 00.3 1.8l.1.1a2 2 0 11-2.8 2.8l-.1-.1a1.7 1.7 0 00-1.8-.3 1.7 1.7 0 00-1 1.5V21a2 2 0 11-4 0v-.1a1.7 1.7 0 00-1.1-1.5 1.7 1.7 0 00-1.8.3l-.1.1a2 2 0 11-2.8-2.8l.1-.1a1.7 1.7 0 00.3-1.8 1.7 1.7 0 00-1.5-1H3a2 2 0 110-4h.1a1.7 1.7 0 001.5-1.1 1.7 1.7 0 00-.3-1.8l-.1-.1a2 2 0 112.8-2.8l.1.1a1.7 1.7 0 001.8.3h.1a1.7 1.7 0 001-1.5V3a2 2 0 114 0v.1a1.7 1.7 0 001 1.5h.1a1.7 1.7 0 001.8-.3l.1-.1a2 2 0 112.8 2.8l-.1.1a1.7 1.7 0 00-.3 1.8v.1a1.7 1.7 0 001.5 1H21a2 2 0 110 4h-.1a1.7 1.7 0 00-1.5 1z" />
+        </svg>
+      );
+    case 'plus':
+      return (
+        <svg {...common}>
+          <path d="M12 5v14M5 12h14" />
+        </svg>
+      );
+    case 'queue-add':
+      return (
+        <svg {...common}>
+          <path d="M3 7h13M3 12h13M3 17h7" />
+          <path d="M18 14v6M15 17h6" />
+        </svg>
+      );
+    case 'trash':
+      return (
+        <svg {...common}>
+          <path d="M4 7h16M9 7V5a2 2 0 012-2h2a2 2 0 012 2v2" />
+          <path d="M6 7l1 13a2 2 0 002 2h6a2 2 0 002-2l1-13" />
         </svg>
       );
     default:

@@ -10,6 +10,8 @@ import {
   SplashScreen,
 } from './components/Screens';
 import RoomEntry from './components/RoomEntry';
+import SpotifyCallback from './components/SpotifyCallback';
+import { markRoomJoined } from './roomState';
 
 const ME_KEY = 'cya:identity:v2';
 
@@ -113,7 +115,10 @@ function Landing() {
       <div className="cya-app">
         <InviteScreen
           roomId={mode.roomId}
-          onEnter={() => navigate(`/r/${mode.roomId}`, { state: { fromInvite: true } })}
+          onEnter={() => {
+            markRoomJoined(mode.roomId);
+            navigate(`/r/${mode.roomId}`);
+          }}
           onBack={() => setMode({ kind: 'home' })}
         />
       </div>
@@ -161,6 +166,7 @@ export default function App() {
     <Routes>
       <Route path="/" element={<Landing />} />
       <Route path="/r/:roomId" element={<RoomEntry />} />
+      <Route path="/spotify/callback" element={<SpotifyCallback />} />
       <Route path="*" element={<NotFound />} />
     </Routes>
   );

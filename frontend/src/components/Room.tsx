@@ -10,6 +10,7 @@ import { socket } from '../socket';
 import IsoScene from './IsoScene';
 import PixelCharacter from './PixelCharacter';
 import SpotifyPlayer from './SpotifyPlayer';
+import ErrorBoundary from './ErrorBoundary';
 import Icon from './Icon';
 import { colorHex } from '../characters';
 import type {
@@ -63,8 +64,13 @@ export default function Room({ roomId, onEditMe, onLeave }: RoomProps) {
     room: 'clearing',
   });
   const [playback, setPlayback] = useState<PlaybackState>(EMPTY_PLAYBACK);
+  const [queue, setQueue] = useState<string[]>([]);
   const [sheet, setSheet] = useState<Sheet>(null);
   const [draft, setDraft] = useState('');
+  // Album art cache for the dock chip. Populated via Spotify's oEmbed
+  // endpoint (no auth required) so the chip can show art even for users
+  // who haven't connected Spotify.
+  const [trackArt, setTrackArt] = useState<Record<string, string>>({});
   const [toasts, setToasts] = useState<{ id: string; text: string }[]>([]);
 
   function pushToast(text: string) {
@@ -77,6 +83,9 @@ export default function Room({ roomId, onEditMe, onLeave }: RoomProps) {
 
   const posRef = useRef({ x: 50, y: 50 });
   const keysRef = useRef<Set<string>>(new Set());
+  // Tracks the last trackUri we toasted for, so the now-playing notification
+  // doesn't double-fire under React Strict Mode's double-invoke of updaters.
+  const lastToastedTrackRef = useRef<string | null>(null);
 
   // ────────────── Socket wiring ──────────────
   useEffect(() => {
@@ -86,6 +95,7 @@ export default function Room({ roomId, onEditMe, onLeave }: RoomProps) {
       messages: ChatMessage[];
       ambient: Ambient;
       playback: PlaybackState;
+      queue?: string[];
     }) {
       setMeId(payload.you.id);
       const normalized = payload.users.map((u) => ({
@@ -97,6 +107,7 @@ export default function Room({ roomId, onEditMe, onLeave }: RoomProps) {
       setMessages(payload.messages ?? []);
       if (payload.ambient) setAmbient(payload.ambient);
       if (payload.playback) setPlayback(payload.playback);
+      if (Array.isArray(payload.queue)) setQueue(payload.queue);
       const meServer = payload.you;
       posRef.current = {
         x: (meServer.x / SERVER_W) * 100,
@@ -169,15 +180,21 @@ export default function Room({ roomId, onEditMe, onLeave }: RoomProps) {
       if (payload.id !== meRef.current && name) pushToast(`${name} left`);
     }
     function handlePlaybackChanged(next: PlaybackState) {
-      setPlayback((prev) => {
-        if (next.trackUri && next.trackUri !== prev.trackUri) {
-          pushToast('now playing · new track');
-        }
-        return next;
-      });
+      // Toast outside the setter — putting side effects inside setPlayback
+      // would double-fire under React Strict Mode's double-invoke.
+      if (next.trackUri && next.trackUri !== lastToastedTrackRef.current) {
+        pushToast('now playing · new track');
+      }
+      lastToastedTrackRef.current = next.trackUri;
+      setPlayback(next);
+    }
+
+    function onQueueChanged(payload: { queue: string[] }) {
+      setQueue(payload.queue);
     }
 
     socket.on('state', onState as never);
+    socket.on('queueChanged', onQueueChanged);
     socket.on('userJoined', handleUserJoined);
     socket.on('userLeft', handleUserLeft);
     socket.on('userMoved', onUserMoved);
@@ -188,6 +205,7 @@ export default function Room({ roomId, onEditMe, onLeave }: RoomProps) {
 
     return () => {
       socket.off('state', onState as never);
+      socket.off('queueChanged', onQueueChanged);
       socket.off('userJoined', handleUserJoined);
       socket.off('userLeft', handleUserLeft);
       socket.off('userMoved', onUserMoved);
@@ -197,6 +215,28 @@ export default function Room({ roomId, onEditMe, onLeave }: RoomProps) {
       socket.off('playbackChanged', handlePlaybackChanged);
     };
   }, []);
+
+  // ────────────── Track art (oEmbed) ──────────────
+  useEffect(() => {
+    const uri = playback.trackUri;
+    if (!uri || trackArt[uri]) return;
+    const id = uri.replace('spotify:track:', '');
+    if (!/^[A-Za-z0-9]{22}$/.test(id)) return;
+    let cancelled = false;
+    const target = `https://open.spotify.com/track/${id}`;
+    fetch(`https://open.spotify.com/oembed?url=${encodeURIComponent(target)}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (cancelled || !data?.thumbnail_url) return;
+        setTrackArt((prev) => ({ ...prev, [uri]: data.thumbnail_url }));
+      })
+      .catch(() => {
+        // ignore — chip falls back to the gradient placeholder
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [playback.trackUri, trackArt]);
 
   // ────────────── Bubble expiry ──────────────
   useEffect(() => {
@@ -323,6 +363,32 @@ export default function Room({ roomId, onEditMe, onLeave }: RoomProps) {
     socket.emit('updatePlayback', next);
   }
 
+  function addToQueue(uri: string) {
+    setQueue((q) => [...q, uri]);
+    socket.emit('addToQueue', { uri });
+  }
+
+  function removeFromQueue(uri: string, index: number) {
+    setQueue((q) => {
+      if (q[index] === uri) {
+        const next = q.slice();
+        next.splice(index, 1);
+        return next;
+      }
+      return q;
+    });
+    socket.emit('removeFromQueue', { uri, index });
+  }
+
+  function advanceQueueLocal(afterTrackUri: string | null) {
+    socket.emit('advanceQueue', { afterTrackUri });
+  }
+
+  function clearQueueLocal() {
+    setQueue([]);
+    socket.emit('clearQueue');
+  }
+
   const peersById: Record<string, User> = Object.fromEntries(users.map((u) => [u.id, u]));
 
   return (
@@ -344,6 +410,7 @@ export default function Room({ roomId, onEditMe, onLeave }: RoomProps) {
       <RoomDock
         ambient={ambient}
         playback={playback}
+        trackArt={playback.trackUri ? trackArt[playback.trackUri] : undefined}
         draft={draft}
         setDraft={setDraft}
         onSend={sendMessage}
@@ -371,7 +438,12 @@ export default function Room({ roomId, onEditMe, onLeave }: RoomProps) {
         open={sheet === 'music'}
         onClose={() => setSheet(null)}
         playback={playback}
+        queue={queue}
         onPlaybackChange={changePlayback}
+        onAddToQueue={addToQueue}
+        onRemoveFromQueue={removeFromQueue}
+        onAdvanceQueue={advanceQueueLocal}
+        onClearQueue={clearQueueLocal}
       />
       <AmbienceSheet
         open={sheet === 'ambience'}
@@ -428,6 +500,7 @@ function RoomTopBar({ roomId, peers, onOpenPeople, onLeave }: RoomTopBarProps) {
 interface RoomDockProps {
   ambient: Ambient;
   playback: PlaybackState;
+  trackArt: string | undefined;
   draft: string;
   setDraft: (v: string) => void;
   onSend: (text: string) => void;
@@ -449,6 +522,7 @@ function ambientGlyph(a: Ambient): string {
 function RoomDock({
   ambient,
   playback,
+  trackArt,
   draft,
   setDraft,
   onSend,
@@ -464,10 +538,19 @@ function RoomDock({
     <form className="dock" onSubmit={submit}>
       <div className="dock-chips">
         <button type="button" className="dock-chip" onClick={onOpenMusic}>
-          <div
-            className="dock-chip-art"
-            style={{ background: 'linear-gradient(135deg, #2b2118 0%, #b54822 100%)' }}
-          />
+          {playback.trackUri && trackArt ? (
+            <img
+              src={trackArt}
+              className="dock-chip-art"
+              alt=""
+              style={{ objectFit: 'cover' }}
+            />
+          ) : (
+            <div
+              className="dock-chip-art"
+              style={{ background: 'linear-gradient(135deg, #2b2118 0%, #b54822 100%)' }}
+            />
+          )}
           <div className="dock-chip-text">
             <div className="dock-chip-title">
               {playback.trackUri ? 'now playing' : 'no track'}
@@ -727,19 +810,48 @@ function MusicSheet({
   open,
   onClose,
   playback,
+  queue,
   onPlaybackChange,
+  onAddToQueue,
+  onRemoveFromQueue,
+  onAdvanceQueue,
+  onClearQueue,
 }: {
   open: boolean;
   onClose: () => void;
   playback: PlaybackState;
+  queue: string[];
   onPlaybackChange: (next: { trackUri: string | null; isPlaying: boolean; positionMs: number }) => void;
+  onAddToQueue: (uri: string) => void;
+  onRemoveFromQueue: (uri: string, index: number) => void;
+  onAdvanceQueue: (afterTrackUri: string | null) => void;
+  onClearQueue: () => void;
 }) {
   return (
     <Sheet open={open} onClose={onClose} title="music" tall>
-      <div className="h-mono" style={{ marginBottom: 14, fontWeight: 700 }}>
-        anyone in the room can swap tracks.
-      </div>
-      <SpotifyPlayer playback={playback} onLocalChange={onPlaybackChange} />
+      <ErrorBoundary
+        fallback={(err, reset) => (
+          <div>
+            <div className="h-display" style={{ fontSize: 18, marginBottom: 10 }}>
+              spotify panel crashed
+            </div>
+            <div className="body-text" style={{ marginBottom: 12 }}>{err.message}</div>
+            <button type="button" className="btn" onClick={reset}>
+              try again
+            </button>
+          </div>
+        )}
+      >
+        <SpotifyPlayer
+          playback={playback}
+          queue={queue}
+          onLocalChange={onPlaybackChange}
+          onAddToQueue={onAddToQueue}
+          onRemoveFromQueue={onRemoveFromQueue}
+          onAdvanceQueue={onAdvanceQueue}
+          onClearQueue={onClearQueue}
+        />
+      </ErrorBoundary>
     </Sheet>
   );
 }

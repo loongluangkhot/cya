@@ -58,6 +58,7 @@ class Room:
     is_playing: bool = False
     position_ms: int = 0
     position_updated_at: float = 0.0
+    queue: list[str] = field(default_factory=list)
     users: dict[str, User] = field(default_factory=dict)
     messages: list[ChatMessage] = field(default_factory=list)
 
@@ -182,6 +183,7 @@ async def on_join(sid: str, payload: dict[str, Any]) -> dict[str, Any]:
             "room": {"width": ROOM_WIDTH, "height": ROOM_HEIGHT},
             "ambient": asdict(room.ambient),
             "playback": _playback_snapshot(room),
+            "queue": list(room.queue),
         },
         to=sid,
     )
@@ -253,6 +255,15 @@ async def on_update_name(sid: str, payload: dict[str, Any]) -> None:
     )
 
 
+def _clean_uri(raw: Any) -> str | None:
+    if raw is None:
+        return None
+    s = str(raw)[:200].strip()
+    if not s.startswith("spotify:track:"):
+        return None
+    return s
+
+
 @sio.on("updatePlayback")
 async def on_update_playback(sid: str, payload: dict[str, Any]) -> None:
     room = await _current_room(sid)
@@ -262,7 +273,7 @@ async def on_update_playback(sid: str, payload: dict[str, Any]) -> None:
     if raw_uri is None:
         track_uri: str | None = None
     else:
-        track_uri = str(raw_uri)[:200].strip() or None
+        track_uri = _clean_uri(raw_uri)
     room.track_uri = track_uri
     room.is_playing = bool(payload.get("isPlaying", False))
     try:
@@ -276,6 +287,79 @@ async def on_update_playback(sid: str, payload: dict[str, Any]) -> None:
         room=room.id,
         skip_sid=sid,
     )
+
+
+@sio.on("addToQueue")
+async def on_add_to_queue(sid: str, payload: dict[str, Any]) -> None:
+    room = await _current_room(sid)
+    if room is None:
+        return
+    uri = _clean_uri(payload.get("uri"))
+    if not uri:
+        return
+    if len(room.queue) >= 200:
+        return
+    room.queue.append(uri)
+    await sio.emit("queueChanged", {"queue": list(room.queue)}, room=room.id)
+
+
+@sio.on("removeFromQueue")
+async def on_remove_from_queue(sid: str, payload: dict[str, Any]) -> None:
+    room = await _current_room(sid)
+    if room is None:
+        return
+    # Remove by exact (uri, index) match if index provided — otherwise first
+    # occurrence of the URI.
+    uri = _clean_uri(payload.get("uri"))
+    if not uri:
+        return
+    raw_idx = payload.get("index")
+    if isinstance(raw_idx, int) and 0 <= raw_idx < len(room.queue) and room.queue[raw_idx] == uri:
+        del room.queue[raw_idx]
+    else:
+        try:
+            room.queue.remove(uri)
+        except ValueError:
+            return
+    await sio.emit("queueChanged", {"queue": list(room.queue)}, room=room.id)
+
+
+@sio.on("clearQueue")
+async def on_clear_queue(sid: str, *_args: Any) -> None:
+    room = await _current_room(sid)
+    if room is None:
+        return
+    if not room.queue:
+        return
+    room.queue.clear()
+    await sio.emit("queueChanged", {"queue": []}, room=room.id)
+
+
+@sio.on("advanceQueue")
+async def on_advance_queue(sid: str, payload: dict[str, Any]) -> None:
+    room = await _current_room(sid)
+    if room is None:
+        return
+    # Idempotent: only advance if caller's "expected current track" matches.
+    # This prevents multiple clients racing to advance at end-of-track.
+    expected = _clean_uri(payload.get("afterTrackUri"))
+    if expected is not None and room.track_uri is not None and expected != room.track_uri:
+        return
+    if not room.queue:
+        # Nothing to advance to — clear playback.
+        room.track_uri = None
+        room.is_playing = False
+        room.position_ms = 0
+        room.position_updated_at = time.time() * 1000
+        await sio.emit("playbackChanged", _playback_snapshot(room), room=room.id)
+        return
+    next_uri = room.queue.pop(0)
+    room.track_uri = next_uri
+    room.is_playing = True
+    room.position_ms = 0
+    room.position_updated_at = time.time() * 1000
+    await sio.emit("queueChanged", {"queue": list(room.queue)}, room=room.id)
+    await sio.emit("playbackChanged", _playback_snapshot(room), room=room.id)
 
 
 @sio.on("updateColor")

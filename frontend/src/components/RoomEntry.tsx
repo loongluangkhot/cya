@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
-import { useLocation, useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
 import { API_BASE } from '../api';
 import { socket } from '../socket';
+import { clearRoomJoined, isCurrentRoom, markRoomJoined } from '../roomState';
 import Room from './Room';
 import {
   CenterMessage,
@@ -54,12 +55,15 @@ type Phase = 'joining' | 'room';
 export default function RoomEntry() {
   const { roomId } = useParams<{ roomId: string }>();
   const navigate = useNavigate();
-  const location = useLocation();
-  const fromInvite = !!(location.state as { fromInvite?: boolean } | null)?.fromInvite;
 
   const [roomCheck, setRoomCheck] = useState<RoomCheck>('checking');
   const [me, setMe] = useState<Identity | null>(loadIdentity());
-  const [phase, setPhase] = useState<Phase>(fromInvite ? 'room' : 'joining');
+  // If this tab has already joined this room (membership marker present),
+  // skip the joining screen on any kind of re-mount — including post-OAuth
+  // redirects, in-tab refreshes, and identity-edit overlays unmounting.
+  const [phase, setPhase] = useState<Phase>(
+    roomId && isCurrentRoom(roomId) ? 'room' : 'joining',
+  );
   const [editing, setEditing] = useState(false);
   const [occupants, setOccupants] = useState<OccupantPeek[] | null>(null);
   const meRef = useRef(me);
@@ -88,6 +92,7 @@ export default function RoomEntry() {
   // Connect socket once we're in the room phase.
   useEffect(() => {
     if (phase !== 'room' || !roomId || !meRef.current) return;
+    markRoomJoined(roomId);
 
     function doJoin() {
       const cm = meRef.current;
@@ -101,13 +106,17 @@ export default function RoomEntry() {
           color: cm.color,
         },
         (ack) => {
-          if (!ack?.ok) setRoomCheck('not_found');
+          if (!ack?.ok) {
+            clearRoomJoined();
+            setRoomCheck('not_found');
+          }
         },
       );
     }
 
     function onDisconnect(reason: string) {
       if (reason === 'io server disconnect') {
+        clearRoomJoined();
         navigate('/', { replace: true });
       }
     }
@@ -197,7 +206,10 @@ export default function RoomEntry() {
         <Room
           roomId={roomId}
           onEditMe={() => setEditing(true)}
-          onLeave={() => navigate('/')}
+          onLeave={() => {
+            clearRoomJoined();
+            navigate('/');
+          }}
         />
       )}
       {editing && (
