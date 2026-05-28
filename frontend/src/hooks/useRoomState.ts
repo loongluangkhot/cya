@@ -44,6 +44,7 @@ export interface UseRoomStateResult {
   queue: string[];
   trackMeta: Record<string, { art: string; title: string }>;
   sendMessage: (text: string) => void;
+  sendVoice: (audio: ArrayBuffer, durationMs: number, mime: string) => void;
   updateMemo: (memo: string) => void;
   changeAmbient: (next: Partial<Ambient>) => void;
   changePlayback: (next: {
@@ -60,6 +61,13 @@ export interface UseRoomStateResult {
 }
 
 const QUEUE_MAX = 200;
+
+export function formatVoiceDuration(ms: number): string {
+  const s = Math.max(0, Math.round(ms / 1000));
+  const mm = Math.floor(s / 60);
+  const ss = s % 60;
+  return `${mm}:${ss.toString().padStart(2, '0')}`;
+}
 
 export function useRoomState({ onToast }: UseRoomStateOpts): UseRoomStateResult {
   const [meId, setMeId] = useState<string | null>(null);
@@ -134,10 +142,21 @@ export function useRoomState({ onToast }: UseRoomStateOpts): UseRoomStateResult 
     }
     function onChat(msg: ChatMessage) {
       setMessages((prev) => [...prev, msg].slice(-200));
+      const bubbleText =
+        msg.kind === 'voice'
+          ? `🎤 voice ${formatVoiceDuration(msg.audioDurationMs)}`
+          : msg.text;
       setBubbles((prev) => ({
         ...prev,
-        [msg.userId]: { text: msg.text, expiresAt: Date.now() + BUBBLE_MS, id: msg.id },
+        [msg.userId]: { text: bubbleText, expiresAt: Date.now() + BUBBLE_MS, id: msg.id },
       }));
+    }
+    function onAudioExpired(payload: { ids: string[] }) {
+      const ids = new Set(payload.ids);
+      if (ids.size === 0) return;
+      setMessages((prev) =>
+        prev.map((m) => (ids.has(m.id) ? { ...m, audioExpired: true } : m)),
+      );
     }
     function onAmbientChanged(next: Ambient) {
       setAmbient(next);
@@ -188,6 +207,7 @@ export function useRoomState({ onToast }: UseRoomStateOpts): UseRoomStateResult 
     socket.on('userMoved', onUserMoved);
     socket.on('userUpdated', onUserUpdated);
     socket.on('chatMessage', onChat);
+    socket.on('audioExpired', onAudioExpired);
     socket.on('ambientChanged', onAmbientChanged);
     socket.on('playbackChanged', handlePlaybackChanged);
 
@@ -199,6 +219,7 @@ export function useRoomState({ onToast }: UseRoomStateOpts): UseRoomStateResult 
       socket.off('userMoved', onUserMoved);
       socket.off('userUpdated', onUserUpdated);
       socket.off('chatMessage', onChat);
+      socket.off('audioExpired', onAudioExpired);
       socket.off('ambientChanged', onAmbientChanged);
       socket.off('playbackChanged', handlePlaybackChanged);
     };
@@ -254,6 +275,10 @@ export function useRoomState({ onToast }: UseRoomStateOpts): UseRoomStateResult 
     const t = text.trim();
     if (!t) return;
     socket.emit('chat', { text: t });
+  }
+  function sendVoice(audio: ArrayBuffer, durationMs: number, mime: string) {
+    if (!audio.byteLength || durationMs <= 0) return;
+    socket.emit('voiceMessage', { audio, durationMs, mime });
   }
   function updateMemo(memo: string) {
     // Optimistic update of the local user's memo — server will echo it back
@@ -331,6 +356,7 @@ export function useRoomState({ onToast }: UseRoomStateOpts): UseRoomStateResult 
     queue,
     trackMeta,
     sendMessage,
+    sendVoice,
     updateMemo,
     changeAmbient,
     changePlayback,

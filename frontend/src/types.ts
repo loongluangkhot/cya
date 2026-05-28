@@ -51,6 +51,8 @@ export interface User {
   memo: string;
 }
 
+export type ChatMessageKind = 'text' | 'voice';
+
 // @sync: backend/main.py:ChatMessage
 export interface ChatMessage {
   id: string;
@@ -60,6 +62,13 @@ export interface ChatMessage {
   color: ColorId;
   text: string;
   timestamp: number;
+  kind: ChatMessageKind;
+  /** Duration in ms for voice messages; 0 for text. */
+  audioDurationMs: number;
+  /** Server-stored MIME type for voice messages; '' for text. */
+  audioMime: string;
+  /** True once the FIFO eviction policy has dropped this message's blob. */
+  audioExpired: boolean;
 }
 
 export interface RoomDimensions {
@@ -113,6 +122,7 @@ export interface ServerToClientEvents {
   userMoved: (payload: MovePayload) => void;
   userUpdated: (payload: UserUpdatedPayload) => void;
   chatMessage: (msg: ChatMessage) => void;
+  audioExpired: (payload: { ids: string[] }) => void;
   ambientChanged: (payload: Ambient) => void;
   playbackChanged: (payload: PlaybackState) => void;
   queueChanged: (payload: { queue: string[] }) => void;
@@ -136,6 +146,11 @@ export interface ClientToServerEvents {
   ) => void;
   move: (payload: { x: number; y: number; direction: Direction }) => void;
   chat: (payload: { text: string }) => void;
+  voiceMessage: (payload: {
+    audio: ArrayBuffer | Uint8Array;
+    durationMs: number;
+    mime: string;
+  }) => void;
   updateCharacter: (payload: { character: CharacterId }) => void;
   updateColor: (payload: { color: ColorId }) => void;
   updateName: (payload: { name: string }) => void;

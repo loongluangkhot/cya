@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import random
 import time
 import uuid
@@ -10,7 +11,7 @@ from pathlib import Path
 from typing import Any
 
 import socketio
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, PlainTextResponse
 
@@ -42,10 +43,63 @@ MAX_HISTORY = 100
 NAME_MAX = 20
 MSG_MAX = 200
 MEMO_MAX = 1000
-# Grace window after the last user disconnects before the room is evicted.
-# Long enough that the Spotify OAuth round-trip (redirect → consent →
-# callback → reconnect) doesn't lose the room.
-ROOM_GRACE_S = 90
+
+
+def _env_int(key: str, default: int) -> int:
+    """Read a positive int from os.environ. Empty/invalid/non-positive
+    values fall back to the default — we never want a malformed env var
+    to silently disable a cap or eviction policy."""
+    raw = os.getenv(key, "").strip()
+    if not raw:
+        return default
+    try:
+        n = int(raw)
+    except ValueError:
+        return default
+    return n if n > 0 else default
+
+
+# Voice-message limits. Single-clip caps protect against runaway uploads;
+# the per-room AUDIO_CAP_BYTES backs the FIFO eviction policy.
+MAX_VOICE_DURATION_MS = _env_int("CYA_VOICE_MAX_S", 60) * 1000
+MAX_VOICE_BYTES = _env_int("CYA_VOICE_MAX_MB", 5) * 1024 * 1024
+# Per-room cap on total voice-message bytes (CYA_AUDIO_CAP_MB).
+AUDIO_CAP_BYTES = _env_int("CYA_AUDIO_CAP_MB", 50) * 1024 * 1024
+# Allow-list of audio MIME types we'll accept from the client. Browsers'
+# MediaRecorder lands on one of these (Chrome/Firefox → webm/opus, Safari
+# → mp4/aac). Stored as-is and echoed back on the audio fetch endpoint so
+# clients can decode without sniffing.
+ALLOWED_VOICE_MIMES: tuple[str, ...] = (
+    "audio/webm",
+    "audio/webm;codecs=opus",
+    "audio/ogg",
+    "audio/ogg;codecs=opus",
+    "audio/mp4",
+    "audio/mp4;codecs=mp4a.40.2",
+    "audio/mpeg",
+)
+# Grace window (seconds) after the last user disconnects before the room
+# is evicted. Long enough to absorb a Spotify OAuth round-trip and typical
+# mobile background-tab durations (phone call, screen lock, brief app
+# switch) so the room is still there when the user returns.
+# Override with CYA_ROOM_GRACE_S.
+ROOM_GRACE_S = _env_int("CYA_ROOM_GRACE_S", 30 * 60)
+
+
+def _cors_origins() -> list[str]:
+    """Read CYA_CORS_ORIGINS as a comma-separated list. Defaults to ['*']
+    for dev convenience; tighten in prod (e.g. https://cya.app,https://staging.cya.app)."""
+    raw = os.getenv("CYA_CORS_ORIGINS", "").strip()
+    if not raw:
+        return ["*"]
+    return [o.strip() for o in raw.split(",") if o.strip()]
+
+
+CORS_ORIGINS = _cors_origins()
+# socket.io accepts either '*' (single string) or a list of explicit origins.
+CORS_ORIGINS_FOR_SIO: str | list[str] = (
+    "*" if CORS_ORIGINS == ["*"] else CORS_ORIGINS
+)
 
 
 # Wire shapes — these dataclasses round-trip through dataclasses.asdict()
@@ -79,6 +133,14 @@ class ChatMessage:
     color: str
     text: str
     timestamp: int
+    # Voice messages have kind='voice' and carry duration/mime metadata.
+    # The blob itself lives in Room.audio_blobs and is fetched via HTTP.
+    # When the FIFO eviction policy drops the blob, audioExpired flips to
+    # true so the chat log can render a disabled state.
+    kind: str = "text"
+    audioDurationMs: int = 0
+    audioMime: str = ""
+    audioExpired: bool = False
 
 
 # @sync: frontend/src/types.ts:Ambient
@@ -102,6 +164,10 @@ class Room:
     queue: list[str] = field(default_factory=list[str])
     users: dict[str, User] = field(default_factory=dict[str, User])
     messages: list[ChatMessage] = field(default_factory=list[ChatMessage])
+    # Voice-message bytes keyed by ChatMessage.id. Capped at AUDIO_CAP_BYTES
+    # via FIFO eviction (see _enforce_audio_cap).
+    audio_blobs: dict[str, bytes] = field(default_factory=dict[str, bytes])
+    audio_total_bytes: int = 0
 
 
 def _playback_snapshot(room: Room) -> PlaybackSnapshot:
@@ -199,11 +265,11 @@ def clamp(n: float, lo: float, hi: float) -> float:
     return max(lo, min(hi, n))
 
 
-sio = socketio.AsyncServer(async_mode="asgi", cors_allowed_origins="*")
+sio = socketio.AsyncServer(async_mode="asgi", cors_allowed_origins=CORS_ORIGINS_FOR_SIO)
 fastapi_app = FastAPI()
 fastapi_app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=CORS_ORIGINS,
     allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -574,9 +640,104 @@ async def on_chat(sid: str, payload: ChatPayload) -> None:
         timestamp=int(time.time() * 1000),
     )
     room.messages.append(message)
-    if len(room.messages) > MAX_HISTORY:
-        room.messages.pop(0)
+    _drop_message_audio_if_present(room, _trim_history(room))
     await sio.emit("chatMessage", asdict(message), room=room.id)
+
+
+def _trim_history(room: Room) -> list[str]:
+    """Drop history beyond MAX_HISTORY. Returns ids of dropped messages
+    so callers can clean up any side data (audio blobs) tied to them."""
+    dropped: list[str] = []
+    while len(room.messages) > MAX_HISTORY:
+        gone = room.messages.pop(0)
+        dropped.append(gone.id)
+    return dropped
+
+
+def _drop_message_audio_if_present(room: Room, ids: list[str]) -> None:
+    for mid in ids:
+        blob = room.audio_blobs.pop(mid, None)
+        if blob is not None:
+            room.audio_total_bytes -= len(blob)
+
+
+async def _enforce_audio_cap(room: Room) -> None:
+    """FIFO eviction: drop oldest audio blobs until total is under cap.
+    The ChatMessage row stays (marked audioExpired) so the chat log can
+    show 'voice clip expired' instead of silently shortening."""
+    expired_ids: list[str] = []
+    for msg in room.messages:
+        if room.audio_total_bytes <= AUDIO_CAP_BYTES:
+            break
+        if msg.kind != "voice" or msg.audioExpired:
+            continue
+        blob = room.audio_blobs.pop(msg.id, None)
+        if blob is None:
+            continue
+        room.audio_total_bytes -= len(blob)
+        msg.audioExpired = True
+        expired_ids.append(msg.id)
+    if expired_ids:
+        await sio.emit("audioExpired", {"ids": expired_ids}, room=room.id)
+
+
+@sio.on("voiceMessage")
+async def on_voice_message(sid: str, payload: Mapping[str, Any]) -> None:
+    room = await _current_room(sid)
+    if room is None:
+        return
+    user = room.users.get(sid)
+    if user is None:
+        return
+    audio = payload.get("audio")
+    if not isinstance(audio, (bytes, bytearray)):
+        return
+    audio_bytes = bytes(audio)
+    if not audio_bytes or len(audio_bytes) > MAX_VOICE_BYTES:
+        return
+    duration = _safe_int(payload, "durationMs", default=0, lo=0, hi=MAX_VOICE_DURATION_MS)
+    if duration <= 0:
+        return
+    mime = _safe_string(payload, "mime", max_len=64)
+    if mime not in ALLOWED_VOICE_MIMES:
+        return
+    message = ChatMessage(
+        id=str(uuid.uuid4()),
+        userId=user.id,
+        name=user.name,
+        character=user.character,
+        color=user.color,
+        text="",
+        timestamp=int(time.time() * 1000),
+        kind="voice",
+        audioDurationMs=duration,
+        audioMime=mime,
+    )
+    room.messages.append(message)
+    room.audio_blobs[message.id] = audio_bytes
+    room.audio_total_bytes += len(audio_bytes)
+    _drop_message_audio_if_present(room, _trim_history(room))
+    await _enforce_audio_cap(room)
+    await sio.emit("chatMessage", asdict(message), room=room.id)
+
+
+@fastapi_app.get("/api/rooms/{room_id}/audio/{message_id}")
+async def get_audio_endpoint(room_id: str, message_id: str) -> Response:
+    room = rooms.get(room_id)
+    if room is None:
+        raise HTTPException(status_code=404, detail={"ok": False})
+    blob = room.audio_blobs.get(message_id)
+    if blob is None:
+        raise HTTPException(status_code=404, detail={"ok": False})
+    msg = next((m for m in room.messages if m.id == message_id), None)
+    mime = msg.audioMime if msg and msg.audioMime else "application/octet-stream"
+    return Response(
+        content=blob,
+        media_type=mime,
+        # Audio rows fetch on demand; cache aggressively so a re-render or
+        # tab-revisit doesn't re-hit the server with a 5MB body.
+        headers={"Cache-Control": "private, max-age=3600, immutable"},
+    )
 
 
 @sio.on("disconnect")

@@ -15,9 +15,11 @@ import { MemoBlock } from './MemoBlock';
 import { effectivePosition } from './spotify/shared';
 import { colorHex } from '../characters';
 import { useToasts } from '../hooks/useToasts';
-import { useRoomState } from '../hooks/useRoomState';
+import { useRoomState, formatVoiceDuration } from '../hooks/useRoomState';
 import { useMovement } from '../hooks/useMovement';
 import { useSpotifyPlayer, type UseSpotifyPlayerResult } from '../hooks/useSpotifyPlayer';
+import { useVoiceRecorder } from '../hooks/useVoiceRecorder';
+import { API_BASE } from '../api';
 import type {
   Ambient,
   AmbientRoom,
@@ -52,6 +54,7 @@ export default function Room({ roomId, onEditMe, onLeave, onMemoPersist }: RoomP
     queue,
     trackMeta,
     sendMessage,
+    sendVoice,
     updateMemo,
     changeAmbient,
     changePlayback,
@@ -172,11 +175,13 @@ export default function Room({ roomId, onEditMe, onLeave, onMemoPersist }: RoomP
         onLeave={onLeave}
       />
 
-      <IrcLog messages={messages.slice(-4)} peersById={peersById} />
+      <IrcLog messages={messages.slice(-4)} peersById={peersById} roomId={roomId} />
 
       <RoomDock
         ambient={ambient}
         spotifyConnected={player.connected}
+        roomId={roomId}
+        onSendVoice={sendVoice}
         playback={playback}
         playbackLabel={dockPlaybackLabel}
         trackArt={
@@ -218,6 +223,7 @@ export default function Room({ roomId, onEditMe, onLeave, onMemoPersist }: RoomP
         onClose={() => setSheet(null)}
         messages={messages}
         peersById={peersById}
+        roomId={roomId}
       />
       <MusicSheet
         open={sheet === 'music'}
@@ -338,6 +344,8 @@ function RoomTopBar({ roomId, peers, onOpenPeople, onLeave }: RoomTopBarProps) {
 interface RoomDockProps {
   ambient: Ambient;
   spotifyConnected: boolean;
+  roomId: string;
+  onSendVoice: (audio: ArrayBuffer, durationMs: number, mime: string) => void;
   playback: PlaybackState;
   playbackLabel: string;
   trackArt: string | undefined;
@@ -385,6 +393,7 @@ function ambientGlyph(a: Ambient): string {
 function RoomDock({
   ambient,
   spotifyConnected,
+  onSendVoice,
   playback,
   playbackLabel,
   trackArt,
@@ -403,9 +412,27 @@ function RoomDock({
   // Only surface the track to users who can actually hear it. Otherwise
   // the chip degrades into a "connect spotify" CTA.
   const showTrack = spotifyConnected && !!playback.trackUri;
+  const recorder = useVoiceRecorder();
+  const recording = recorder.status === 'recording';
   function submit(e: FormEvent) {
     e.preventDefault();
     onSend(draft);
+  }
+  async function micDown(e: ReactPointerEvent<HTMLButtonElement>) {
+    e.preventDefault();
+    e.currentTarget.setPointerCapture?.(e.pointerId);
+    await recorder.start();
+  }
+  async function micUp() {
+    if (!recording) {
+      recorder.cancel();
+      return;
+    }
+    const clip = await recorder.stop();
+    if (clip) onSendVoice(clip.audio, clip.durationMs, clip.mime);
+  }
+  function micCancel() {
+    recorder.cancel();
   }
   return (
     <form className="dock" onSubmit={submit}>
@@ -468,27 +495,54 @@ function RoomDock({
         </button>
       </div>
       <div className="composer">
-        <input
-          className="composer-input"
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          placeholder="say something…"
-          maxLength={200}
-        />
+        {recording ? (
+          <div className="composer-input is-recording" aria-live="polite">
+            <span className="rec-dot" aria-hidden="true" />
+            <span>recording… {formatVoiceDuration(recorder.elapsedMs)}</span>
+            <span className="rec-hint">release to send</span>
+          </div>
+        ) : (
+          <input
+            className="composer-input"
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            placeholder="say something…"
+            maxLength={200}
+            disabled={recorder.status === 'requesting'}
+          />
+        )}
         <button
           type="button"
           className="composer-btn"
           aria-label="open log"
           onClick={onOpenChat}
+          disabled={recording}
         >
           <Icon name="chat" size={18} />
         </button>
-        {draft.trim() && (
+        {draft.trim() ? (
           <button type="submit" className="composer-btn is-send" aria-label="send">
             <Icon name="send" size={16} />
           </button>
+        ) : (
+          <button
+            type="button"
+            className={`composer-btn is-mic${recording ? ' is-recording' : ''}`}
+            aria-label={recording ? 'release to send voice message' : 'hold to record voice message'}
+            onPointerDown={micDown}
+            onPointerUp={micUp}
+            onPointerCancel={micCancel}
+          >
+            <Icon name="mic" size={16} />
+          </button>
         )}
       </div>
+      {recorder.status === 'denied' && (
+        <div className="composer-error">microphone access denied — check browser permissions</div>
+      )}
+      {recorder.status === 'unsupported' && (
+        <div className="composer-error">voice messages aren't supported in this browser</div>
+      )}
     </form>
   );
 }
@@ -620,9 +674,10 @@ function Toasts({ items }: { items: { id: string; text: string }[] }) {
 interface IrcLogProps {
   messages: ChatMessage[];
   peersById: Record<string, User>;
+  roomId: string;
 }
 
-function IrcLog({ messages, peersById }: IrcLogProps) {
+function IrcLog({ messages, peersById, roomId }: IrcLogProps) {
   return (
     <div className="irc-log">
       {messages.map((m) => {
@@ -633,11 +688,104 @@ function IrcLog({ messages, peersById }: IrcLogProps) {
         return (
           <div className="irc-row" key={m.id} style={{ opacity }}>
             <span className="irc-name" style={{ color: c }}>&lt;{m.name}&gt;</span>
-            <span style={{ marginLeft: 6 }}>{m.text}</span>
+            {m.kind === 'voice' ? (
+              <span style={{ marginLeft: 6 }}>
+                <VoicePlayer
+                  roomId={roomId}
+                  messageId={m.id}
+                  durationMs={m.audioDurationMs}
+                  mime={m.audioMime}
+                  expired={m.audioExpired}
+                  compact
+                />
+              </span>
+            ) : (
+              <span style={{ marginLeft: 6 }}>{m.text}</span>
+            )}
           </div>
         );
       })}
     </div>
+  );
+}
+
+// ───────── Voice player ─────────
+
+interface VoicePlayerProps {
+  roomId: string;
+  messageId: string;
+  durationMs: number;
+  mime: string;
+  expired: boolean;
+  /** Smaller variant for the IRC log overlay. */
+  compact?: boolean;
+}
+
+function VoicePlayer({ roomId, messageId, durationMs, mime, expired, compact }: VoicePlayerProps) {
+  const [playing, setPlaying] = useState(false);
+  const [error, setError] = useState(false);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+
+  useEffect(() => {
+    return () => {
+      const el = audioRef.current;
+      if (el) {
+        el.pause();
+        if (el.src) URL.revokeObjectURL(el.src);
+      }
+    };
+  }, []);
+
+  async function toggle() {
+    if (expired) return;
+    let el = audioRef.current;
+    if (!el) {
+      try {
+        const res = await fetch(`${API_BASE}/api/rooms/${roomId}/audio/${messageId}`);
+        if (!res.ok) throw new Error('fetch failed');
+        const blob = await res.blob();
+        const url = URL.createObjectURL(blob.type ? blob : new Blob([blob], { type: mime }));
+        el = new Audio(url);
+        el.onended = () => setPlaying(false);
+        el.onerror = () => {
+          setError(true);
+          setPlaying(false);
+        };
+        audioRef.current = el;
+      } catch {
+        setError(true);
+        return;
+      }
+    }
+    if (playing) {
+      el.pause();
+      setPlaying(false);
+    } else {
+      try {
+        await el.play();
+        setPlaying(true);
+      } catch {
+        setError(true);
+      }
+    }
+  }
+
+  const label = expired
+    ? 'voice clip expired'
+    : error
+      ? 'voice clip unavailable'
+      : `voice ${formatVoiceDuration(durationMs)}`;
+  return (
+    <button
+      type="button"
+      className={`voice-row${compact ? ' is-compact' : ''}${expired || error ? ' is-expired' : ''}${playing ? ' is-playing' : ''}`}
+      onClick={toggle}
+      disabled={expired || error}
+      aria-label={expired ? 'voice clip expired' : playing ? 'pause voice message' : 'play voice message'}
+    >
+      <Icon name={playing ? 'pause' : expired ? 'mic-off' : 'play'} size={compact ? 11 : 14} />
+      <span>{label}</span>
+    </button>
   );
 }
 
@@ -754,11 +902,13 @@ function ChatLogSheet({
   onClose,
   messages,
   peersById,
+  roomId,
 }: {
   open: boolean;
   onClose: () => void;
   messages: ChatMessage[];
   peersById: Record<string, User>;
+  roomId: string;
 }) {
   const ref = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
@@ -774,7 +924,19 @@ function ChatLogSheet({
             <div key={m.id} className="chat-row">
               <span className="time">{new Date(m.timestamp).toTimeString().slice(0, 5)}</span>
               <span className="who" style={{ color: c }}>&lt;{m.name}&gt;</span>
-              <span className="text">{m.text}</span>
+              {m.kind === 'voice' ? (
+                <span className="text">
+                  <VoicePlayer
+                    roomId={roomId}
+                    messageId={m.id}
+                    durationMs={m.audioDurationMs}
+                    mime={m.audioMime}
+                    expired={m.audioExpired}
+                  />
+                </span>
+              ) : (
+                <span className="text">{m.text}</span>
+              )}
             </div>
           );
         })}

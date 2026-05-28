@@ -15,7 +15,9 @@ interface IconProps {
     | 'gear'
     | 'plus'
     | 'queue-add'
-    | 'trash';
+    | 'trash'
+    | 'mic'
+    | 'mic-off';
   size?: number;
   color?: string;
 }
@@ -140,6 +142,23 @@ export default function Icon({ name, size = 18, color = 'currentColor' }: IconPr
         <svg {...common}>
           <path d="M4 7h16M9 7V5a2 2 0 012-2h2a2 2 0 012 2v2" />
           <path d="M6 7l1 13a2 2 0 002 2h6a2 2 0 002-2l1-13" />
+        </svg>
+      );
+    case 'mic':
+      return (
+        <svg {...common}>
+          <rect x="9" y="3" width="6" height="11" rx="3" />
+          <path d="M5 11a7 7 0 0014 0" />
+          <path d="M12 18v3M9 21h6" />
+        </svg>
+      );
+    case 'mic-off':
+      return (
+        <svg {...common}>
+          <rect x="9" y="3" width="6" height="11" rx="3" />
+          <path d="M5 11a7 7 0 0014 0" />
+          <path d="M12 18v3M9 21h6" />
+          <path d="M4 4l16 16" />
         </svg>
       );
     default:

@@ -1369,6 +1369,65 @@ input, textarea, select { font-size: 16px; }
   background: var(--fg);
   color: var(--bg);
 }
+.composer-btn.is-mic.is-recording {
+  background: #c83a3a;
+  color: #fff;
+  border-color: #c83a3a;
+}
+.composer-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.composer-input.is-recording {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #c83a3a;
+  font-weight: 600;
+}
+.composer-input.is-recording .rec-hint {
+  margin-left: auto;
+  opacity: 0.7;
+  font-weight: 400;
+  font-size: 13px;
+}
+.rec-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #c83a3a;
+  animation: rec-pulse 1s ease-in-out infinite;
+}
+@keyframes rec-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+.composer-error {
+  margin-top: 6px;
+  font-size: 12px;
+  color: #c83a3a;
+  text-align: center;
+}
+
+/* Voice-message inline player — used in chat log + IRC overlay. */
+.voice-row {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  font: inherit;
+  color: inherit;
+  background: var(--surface);
+  border: var(--border-w) solid var(--fg);
+  border-radius: var(--radius-pill);
+  cursor: pointer;
+}
+.voice-row.is-playing { background: var(--fg); color: var(--bg); }
+.voice-row.is-expired { opacity: 0.5; cursor: not-allowed; }
+.voice-row.is-compact {
+  padding: 1px 8px;
+  font-size: 12px;
+  border-width: 1px;
+}
 
 /* Toasts */
 .toasts {
