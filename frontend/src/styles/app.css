@@ -154,13 +154,11 @@ input, textarea, select { font-size: 16px; }
   background: var(--bg);
 }
 
-/* Targeted text-select suppression: only inside <button> elements (and
-   their descendants — covers D-pad arrows, wander label, room title,
-   icon buttons, etc.). Everything else is normally selectable. This
-   stops mobile long-press from triggering the text-selection UI on
-   movement controls without sacrificing copy/select elsewhere. */
-.cya-app button,
-.cya-app button * {
+/* Suppress text selection app-wide — mobile long-press shouldn't pop the
+   selection UI on D-pad, dock chips, room title, etc. The chat log sheet
+   opts back in below so users can copy message text. Native form fields
+   (<input>, <textarea>) handle their own selection regardless. */
+.cya-app {
   user-select: none;
   -webkit-user-select: none;
   -webkit-touch-callout: none;
@@ -169,13 +167,19 @@ input, textarea, select { font-size: 16px; }
 .cya-app button {
   touch-action: manipulation;
 }
+.cya-app .chat-row,
+.cya-app .chat-row * {
+  user-select: text;
+  -webkit-user-select: text;
+  -webkit-touch-callout: default;
+  cursor: text;
+}
 
 /* The IRC container is pointer-events: none so drag-to-pan on the scene
    passes through it. Re-enable pointer events on the individual rows
-   themselves so users can actually click+drag to select message text. */
+   themselves so taps still register. */
 .cya-app .irc-row {
   pointer-events: auto;
-  cursor: text;
 }
 
 /* Soft desktop backdrop — only kicks in once the viewport is wider than
@@ -1167,7 +1171,8 @@ input, textarea, select { font-size: 16px; }
   cursor: pointer;
   box-shadow: 0 2px 0 rgba(0, 0, 0, 0.25);
 }
-.dpad-btn:active {
+.dpad-btn:active,
+.dpad-btn.is-active {
   box-shadow: inset 0 2px 0 rgba(0, 0, 0, 0.35);
   transform: translateY(1px);
 }

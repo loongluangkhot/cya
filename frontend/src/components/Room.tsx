@@ -176,10 +176,19 @@ export default function Room({ roomId, onEditMe, onLeave, onMemoPersist }: RoomP
 
       <RoomDock
         ambient={ambient}
+        spotifyConnected={player.connected}
         playback={playback}
         playbackLabel={dockPlaybackLabel}
-        trackArt={playback.trackUri ? trackMeta[playback.trackUri]?.art : undefined}
-        trackTitle={playback.trackUri ? trackMeta[playback.trackUri]?.title : undefined}
+        trackArt={
+          player.connected && playback.trackUri
+            ? trackMeta[playback.trackUri]?.art
+            : undefined
+        }
+        trackTitle={
+          player.connected && playback.trackUri
+            ? trackMeta[playback.trackUri]?.title
+            : undefined
+        }
         draft={draft}
         setDraft={setDraft}
         onSend={onSend}
@@ -328,6 +337,7 @@ function RoomTopBar({ roomId, peers, onOpenPeople, onLeave }: RoomTopBarProps) {
 
 interface RoomDockProps {
   ambient: Ambient;
+  spotifyConnected: boolean;
   playback: PlaybackState;
   playbackLabel: string;
   trackArt: string | undefined;
@@ -348,14 +358,16 @@ function computeDockPlaybackLabel(
   playback: PlaybackState,
   player: UseSpotifyPlayerResult,
 ): string {
+  // Users who haven't connected Spotify can't hear anything, so the chip
+  // is purely a CTA — don't leak what others in the room are playing.
+  if (!player.connected) return 'connect spotify';
   if (!playback.trackUri) return 'tap to set a track';
   // While the local SDK is still spinning up, the room's "playing" state
   // hasn't translated into audio yet — say so. Once status resolves
   // (ready / premium-required / error), trust the room state: users
   // without Premium can never make the SDK report local playback, and
   // we don't want the chip stuck on "starting…" for them.
-  const sdkSpinningUp =
-    player.connected && (player.status === 'idle' || player.status === 'loading');
+  const sdkSpinningUp = player.status === 'idle' || player.status === 'loading';
   if (sdkSpinningUp && playback.isPlaying) return 'starting…';
   return playback.isPlaying ? 'playing' : 'paused';
 }
@@ -372,6 +384,7 @@ function ambientGlyph(a: Ambient): string {
 
 function RoomDock({
   ambient,
+  spotifyConnected,
   playback,
   playbackLabel,
   trackArt,
@@ -387,6 +400,9 @@ function RoomDock({
   onTogglePlay,
   onNext,
 }: RoomDockProps) {
+  // Only surface the track to users who can actually hear it. Otherwise
+  // the chip degrades into a "connect spotify" CTA.
+  const showTrack = spotifyConnected && !!playback.trackUri;
   function submit(e: FormEvent) {
     e.preventDefault();
     onSend(draft);
@@ -396,7 +412,7 @@ function RoomDock({
       <div className="dock-chips">
         <div className="dock-chip dock-chip-music">
           <button type="button" className="dock-chip-open" onClick={onOpenMusic}>
-            {playback.trackUri && trackArt ? (
+            {showTrack && trackArt ? (
               <img
                 src={trackArt}
                 className="dock-chip-art"
@@ -411,12 +427,12 @@ function RoomDock({
             )}
             <div className="dock-chip-text">
               <div className="dock-chip-title">
-                {playback.trackUri ? (trackTitle || 'now playing') : 'no track'}
+                {showTrack ? (trackTitle || 'now playing') : 'music'}
               </div>
               <div className="dock-chip-meta">{playbackLabel}</div>
             </div>
           </button>
-          {playback.trackUri && (
+          {showTrack && (
             <div className="dock-chip-controls">
               <button
                 type="button"
@@ -484,45 +500,104 @@ interface DPadProps {
 }
 
 function DPad({ onNudge }: DPadProps) {
-  const holdRef = useRef<number | null>(null);
-  function start(dx: number, dy: number) {
-    return (e: ReactPointerEvent<HTMLButtonElement>) => {
-      e.preventDefault();
-      e.currentTarget.setPointerCapture?.(e.pointerId);
-      onNudge(dx, dy);
-      if (holdRef.current !== null) clearInterval(holdRef.current);
-      holdRef.current = window.setInterval(() => onNudge(dx, dy), 130);
-    };
-  }
-  function stop() {
-    if (holdRef.current !== null) clearInterval(holdRef.current);
-    holdRef.current = null;
-  }
-  useEffect(() => () => stop(), []);
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const intervalRef = useRef<number | null>(null);
+  const dirRef = useRef<{ dx: number; dy: number }>({ dx: 0, dy: 0 });
+  const activePointerRef = useRef<number | null>(null);
+  const [activeDir, setActiveDir] = useState<{ dx: number; dy: number } | null>(null);
 
-  function btn(dx: number, dy: number, glyph: string, label: string, klass: string) {
+  // Map pointer position → 8-way direction. The whole 3×3 cross is one
+  // virtual stick: the angle from the center decides which way we walk,
+  // so a tap on the up arrow and a drag toward the top-left both work.
+  function pointerDir(clientX: number, clientY: number): { dx: number; dy: number } {
+    const el = containerRef.current;
+    if (!el) return { dx: 0, dy: 0 };
+    const rect = el.getBoundingClientRect();
+    const cx = rect.left + rect.width / 2;
+    const cy = rect.top + rect.height / 2;
+    const ox = clientX - cx;
+    const oy = clientY - cy;
+    // Dead zone in the center cell — touching the core shouldn't drift.
+    if (Math.hypot(ox, oy) < rect.width * 0.16) return { dx: 0, dy: 0 };
+    // 8 sectors: divide 2π into eighths, snap to the nearest cardinal/diagonal.
+    const sector = ((Math.round(Math.atan2(oy, ox) / (Math.PI / 4)) % 8) + 8) % 8;
+    // 0=E, 1=SE, 2=S, 3=SW, 4=W, 5=NW, 6=N, 7=NE
+    const table: [number, number][] = [
+      [1, 0], [1, 1], [0, 1], [-1, 1], [-1, 0], [-1, -1], [0, -1], [1, -1],
+    ];
+    const [dx, dy] = table[sector];
+    return { dx, dy };
+  }
+
+  function applyDir(dir: { dx: number; dy: number }) {
+    dirRef.current = dir;
+    setActiveDir(dir.dx === 0 && dir.dy === 0 ? null : dir);
+  }
+
+  function onDown(e: ReactPointerEvent<HTMLDivElement>) {
+    if (activePointerRef.current !== null) return;
+    e.preventDefault();
+    e.currentTarget.setPointerCapture?.(e.pointerId);
+    activePointerRef.current = e.pointerId;
+    const dir = pointerDir(e.clientX, e.clientY);
+    applyDir(dir);
+    if (dir.dx || dir.dy) onNudge(dir.dx, dir.dy);
+    if (intervalRef.current !== null) clearInterval(intervalRef.current);
+    intervalRef.current = window.setInterval(() => {
+      const d = dirRef.current;
+      if (d.dx || d.dy) onNudge(d.dx, d.dy);
+    }, 130);
+  }
+  function onMove(e: ReactPointerEvent<HTMLDivElement>) {
+    if (activePointerRef.current !== e.pointerId) return;
+    applyDir(pointerDir(e.clientX, e.clientY));
+  }
+  function onUp(e: ReactPointerEvent<HTMLDivElement>) {
+    if (activePointerRef.current !== e.pointerId) return;
+    activePointerRef.current = null;
+    applyDir({ dx: 0, dy: 0 });
+    if (intervalRef.current !== null) {
+      clearInterval(intervalRef.current);
+      intervalRef.current = null;
+    }
+  }
+  useEffect(
+    () => () => {
+      if (intervalRef.current !== null) clearInterval(intervalRef.current);
+    },
+    [],
+  );
+
+  // Visual cell. Highlights when its direction matches the current
+  // 8-way input — cardinal cells light up for diagonal inputs too.
+  function cell(dx: number, dy: number, glyph: string, klass: string) {
+    const active =
+      activeDir !== null &&
+      (dx === 0 || activeDir.dx === dx) &&
+      (dy === 0 || activeDir.dy === dy) &&
+      !(dx === 0 && dy === 0);
     return (
-      <button
-        type="button"
-        aria-label={label}
-        className={`dpad-btn ${klass}`}
-        onPointerDown={start(dx, dy)}
-        onPointerUp={stop}
-        onPointerLeave={stop}
-        onPointerCancel={stop}
-      >
+      <div className={`dpad-btn ${klass}${active ? ' is-active' : ''}`} aria-hidden="true">
         {glyph}
-      </button>
+      </div>
     );
   }
 
   return (
-    <div className="dpad" aria-label="movement controls">
-      {btn(0, -1, '▲', 'up', 'dpad-up')}
-      {btn(-1, 0, '◀', 'left', 'dpad-left')}
+    <div
+      ref={containerRef}
+      className="dpad"
+      aria-label="movement controls"
+      onPointerDown={onDown}
+      onPointerMove={onMove}
+      onPointerUp={onUp}
+      onPointerCancel={onUp}
+    >
+      {cell(0, -1, '▲', 'dpad-up')}
+      {cell(-1, 0, '◀', 'dpad-left')}
       <div className="dpad-core" aria-hidden="true" />
-      {btn(1, 0, '▶', 'right', 'dpad-right')}
-      {btn(0, 1, '▼', 'down', 'dpad-down')}
+      {cell(1, 0, '▶', 'dpad-right')}
+      {cell(0, 1, '▼', 'dpad-down')}
     </div>
   );
 }
