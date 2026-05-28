@@ -17,6 +17,7 @@ import { colorHex } from '../characters';
 import { useToasts } from '../hooks/useToasts';
 import { useRoomState } from '../hooks/useRoomState';
 import { useMovement } from '../hooks/useMovement';
+import { useSpotifyPlayer, type UseSpotifyPlayerResult } from '../hooks/useSpotifyPlayer';
 import type {
   Ambient,
   AmbientRoom,
@@ -62,6 +63,21 @@ export default function Room({ roomId, onEditMe, onLeave, onMemoPersist }: RoomP
     clearQueue,
   } = useRoomState({ onToast: pushToast });
   const { nudge, wandering, setWandering } = useMovement({ meId, users, setUsers });
+
+  // Spotify SDK lives at Room scope so the dock chip can reflect *this
+  // user's* actual audio state — not just whatever the room thinks is
+  // playing. When you first enter a room with Spotify already connected,
+  // the SDK takes a beat to load and transfer playback; during that gap
+  // the chip should say "starting…" rather than misleadingly say "playing".
+  const player = useSpotifyPlayer({
+    playback,
+    queue,
+    onLocalChange: changePlayback,
+    onAddToQueue: addToQueue,
+    onAddManyToQueue: addManyToQueue,
+    onPlayCollection: playCollection,
+    onAdvanceQueue: advanceQueue,
+  });
 
   const [sheet, setSheet] = useState<Sheet>(null);
   const [draft, setDraft] = useState('');
@@ -114,6 +130,11 @@ export default function Room({ roomId, onEditMe, onLeave, onMemoPersist }: RoomP
 
   const peersById: Record<string, User> = Object.fromEntries(users.map((u) => [u.id, u]));
 
+  // What the dock chip's status line should read. When the user is
+  // connected to Spotify we trust the local SDK — otherwise fall back to
+  // shared room state (the only signal a non-connected viewer has).
+  const dockPlaybackLabel = computeDockPlaybackLabel(playback, player);
+
   return (
     <div className="room-root">
       <IsoScene
@@ -156,6 +177,7 @@ export default function Room({ roomId, onEditMe, onLeave, onMemoPersist }: RoomP
       <RoomDock
         ambient={ambient}
         playback={playback}
+        playbackLabel={dockPlaybackLabel}
         trackArt={playback.trackUri ? trackMeta[playback.trackUri]?.art : undefined}
         trackTitle={playback.trackUri ? trackMeta[playback.trackUri]?.title : undefined}
         draft={draft}
@@ -191,14 +213,10 @@ export default function Room({ roomId, onEditMe, onLeave, onMemoPersist }: RoomP
       <MusicSheet
         open={sheet === 'music'}
         onClose={() => setSheet(null)}
+        player={player}
         playback={playback}
         queue={queue}
-        onPlaybackChange={changePlayback}
-        onAddToQueue={addToQueue}
-        onAddManyToQueue={addManyToQueue}
-        onPlayCollection={playCollection}
         onRemoveFromQueue={removeFromQueue}
-        onAdvanceQueue={advanceQueue}
         onClearQueue={clearQueue}
       />
       <AmbienceSheet
@@ -311,6 +329,7 @@ function RoomTopBar({ roomId, peers, onOpenPeople, onLeave }: RoomTopBarProps) {
 interface RoomDockProps {
   ambient: Ambient;
   playback: PlaybackState;
+  playbackLabel: string;
   trackArt: string | undefined;
   trackTitle: string | undefined;
   draft: string;
@@ -323,6 +342,22 @@ interface RoomDockProps {
   onPrev: () => void;
   onTogglePlay: () => void;
   onNext: () => void;
+}
+
+function computeDockPlaybackLabel(
+  playback: PlaybackState,
+  player: UseSpotifyPlayerResult,
+): string {
+  if (!playback.trackUri) return 'tap to set a track';
+  // While the local SDK is still spinning up, the room's "playing" state
+  // hasn't translated into audio yet — say so. Once status resolves
+  // (ready / premium-required / error), trust the room state: users
+  // without Premium can never make the SDK report local playback, and
+  // we don't want the chip stuck on "starting…" for them.
+  const sdkSpinningUp =
+    player.connected && (player.status === 'idle' || player.status === 'loading');
+  if (sdkSpinningUp && playback.isPlaying) return 'starting…';
+  return playback.isPlaying ? 'playing' : 'paused';
 }
 
 function ambientGlyph(a: Ambient): string {
@@ -338,6 +373,7 @@ function ambientGlyph(a: Ambient): string {
 function RoomDock({
   ambient,
   playback,
+  playbackLabel,
   trackArt,
   trackTitle,
   draft,
@@ -377,11 +413,7 @@ function RoomDock({
               <div className="dock-chip-title">
                 {playback.trackUri ? (trackTitle || 'now playing') : 'no track'}
               </div>
-              <div className="dock-chip-meta">
-                {playback.trackUri
-                  ? (playback.isPlaying ? 'playing' : 'paused')
-                  : 'tap to set a track'}
-              </div>
+              <div className="dock-chip-meta">{playbackLabel}</div>
             </div>
           </button>
           {playback.trackUri && (
@@ -680,26 +712,18 @@ function ChatLogSheet({
 function MusicSheet({
   open,
   onClose,
+  player,
   playback,
   queue,
-  onPlaybackChange,
-  onAddToQueue,
-  onAddManyToQueue,
-  onPlayCollection,
   onRemoveFromQueue,
-  onAdvanceQueue,
   onClearQueue,
 }: {
   open: boolean;
   onClose: () => void;
+  player: UseSpotifyPlayerResult;
   playback: PlaybackState;
   queue: string[];
-  onPlaybackChange: (next: { trackUri: string | null; isPlaying: boolean; positionMs: number }) => void;
-  onAddToQueue: (uri: string) => void;
-  onAddManyToQueue: (uris: string[]) => void;
-  onPlayCollection: (uris: string[]) => void;
   onRemoveFromQueue: (uri: string, index: number) => void;
-  onAdvanceQueue: (afterTrackUri: string | null) => void;
   onClearQueue: () => void;
 }) {
   return (
@@ -718,14 +742,10 @@ function MusicSheet({
         )}
       >
         <SpotifyPlayer
+          player={player}
           playback={playback}
           queue={queue}
-          onLocalChange={onPlaybackChange}
-          onAddToQueue={onAddToQueue}
-          onAddManyToQueue={onAddManyToQueue}
-          onPlayCollection={onPlayCollection}
           onRemoveFromQueue={onRemoveFromQueue}
-          onAdvanceQueue={onAdvanceQueue}
           onClearQueue={onClearQueue}
         />
       </ErrorBoundary>

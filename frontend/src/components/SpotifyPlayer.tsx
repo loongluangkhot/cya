@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { beginSpotifyLogin } from '../spotifyAuth';
-import { useSpotifyPlayer } from '../hooks/useSpotifyPlayer';
+import type { UseSpotifyPlayerResult } from '../hooks/useSpotifyPlayer';
 import type { PlaybackState } from '../types';
 import { NowTab } from './spotify/NowTab';
 import { SearchTab } from './spotify/SearchTab';
@@ -8,26 +8,18 @@ import { LibraryTab } from './spotify/LibraryTab';
 import { INITIAL_SEARCH, type Drill, type SearchState, type Tab } from './spotify/shared';
 
 interface SpotifyPlayerProps {
+  player: UseSpotifyPlayerResult;
   playback: PlaybackState;
   queue: string[];
-  onLocalChange: (next: { trackUri: string | null; isPlaying: boolean; positionMs: number }) => void;
-  onAddToQueue: (uri: string) => void;
-  onAddManyToQueue: (uris: string[]) => void;
-  onPlayCollection: (uris: string[]) => void;
   onRemoveFromQueue: (uri: string, index: number) => void;
-  onAdvanceQueue: (afterTrackUri: string | null) => void;
   onClearQueue: () => void;
 }
 
 export default function SpotifyPlayer({
+  player,
   playback,
   queue,
-  onLocalChange,
-  onAddToQueue,
-  onAddManyToQueue,
-  onPlayCollection,
   onRemoveFromQueue,
-  onAdvanceQueue,
   onClearQueue,
 }: SpotifyPlayerProps) {
   const {
@@ -45,15 +37,7 @@ export default function SpotifyPlayer({
     restart,
     next,
     disconnectSpotify,
-  } = useSpotifyPlayer({
-    playback,
-    queue,
-    onLocalChange,
-    onAddToQueue,
-    onAddManyToQueue,
-    onPlayCollection,
-    onAdvanceQueue,
-  });
+  } = player;
 
   const [tab, setTab] = useState<Tab>('now');
   const [drill, setDrill] = useState<Drill>(null);

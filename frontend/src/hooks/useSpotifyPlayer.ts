@@ -94,6 +94,8 @@ export function useSpotifyPlayer({
   const endTimerRef = useRef<number | null>(null);
   const playbackRef = useRef(playback);
   playbackRef.current = playback;
+  const queueRef = useRef(queue);
+  queueRef.current = queue;
   const onLocalChangeRef = useRef(onLocalChange);
   onLocalChangeRef.current = onLocalChange;
   const onAdvanceQueueRef = useRef(onAdvanceQueue);
@@ -132,24 +134,28 @@ export function useSpotifyPlayer({
         player.addListener('ready', async ({ device_id }) => {
           if (cancelled) return;
           setDeviceId(device_id);
-          setStatus('ready');
-          // Transfer playback to this device so subsequent play commands
-          // targeting it are accepted by Spotify Connect. Without this,
-          // PUT /me/player/play returns 404 "Device not found".
+          // Transfer playback to this device BEFORE flipping status to
+          // 'ready'. The applyRemote effect runs on status change and
+          // immediately issues a play command — if the transfer is still
+          // in flight, Spotify Connect 404s the device and we rely on a
+          // brittle retry. Sequencing here makes that retry unnecessary.
           try {
             const tok = await getValidSpotifyToken();
-            if (!tok || cancelled) return;
-            await fetch('https://api.spotify.com/v1/me/player', {
-              method: 'PUT',
-              headers: {
-                Authorization: `Bearer ${tok}`,
-                'Content-Type': 'application/json',
-              },
-              body: JSON.stringify({ device_ids: [device_id], play: false }),
-            });
+            if (tok && !cancelled) {
+              await fetch('https://api.spotify.com/v1/me/player', {
+                method: 'PUT',
+                headers: {
+                  Authorization: `Bearer ${tok}`,
+                  'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ device_ids: [device_id], play: false }),
+              });
+            }
           } catch {
-            // ignore — applyRemote will retry on the next state change
+            // ignore — applyRemote's retry path will still cover us
           }
+          if (cancelled) return;
+          setStatus('ready');
         });
         player.addListener('not_ready', () => {
           if (cancelled) return;
@@ -305,22 +311,22 @@ export function useSpotifyPlayer({
       return;
     }
 
+    if (!p.isPlaying) {
+      // Track is selected but not actively playing — don't preload it
+      // into the SDK. Spotify's play endpoint loads-and-immediately-
+      // plays, so a "load then pause" dance emits ~600ms of audio. When
+      // the user flips isPlaying to true, applyRemote re-runs and loads
+      // the track then.
+      lastEndedUriRef.current = null;
+      return;
+    }
     suppressUntilRef.current = Date.now() + 2500;
     lastEndedUriRef.current = null;
-    const ok = await controlPlayback(dev, token, {
+    await controlPlayback(dev, token, {
       kind: 'play',
       uri: p.trackUri,
       positionMs: targetMs,
     });
-    if (!ok) return;
-    if (!p.isPlaying) {
-      // Track loads playing by default; pause shortly after.
-      window.setTimeout(() => {
-        getValidSpotifyToken().then((t) => {
-          if (t) controlPlayback(dev, t, { kind: 'pause' });
-        });
-      }, 600);
-    }
   }
 
   async function controlPlayback(
@@ -389,34 +395,34 @@ export function useSpotifyPlayer({
     return false;
   }
 
-  // ────────────── Default playlist autoplay ──────────────
+  // ────────────── Default queue seed ──────────────
   // When this user's Spotify token first becomes available and the room
-  // has no track yet, kick off the configured default playlist so the
-  // space isn't silent. We don't wait for the SDK to be ready — once it
-  // does load, applyRemote will pick up the now-set playback. Guarded by
-  // a ref so we only auto-trigger once per session.
-  const onPlayCollectionRef = useRef(onPlayCollection);
-  onPlayCollectionRef.current = onPlayCollection;
-  const defaultAutoplayedRef = useRef(false);
+  // is fresh (no track, no queue), seed the queue with the configured
+  // default playlist so it's not empty. We *don't* start playback — the
+  // user picks when to begin.
+  const onAddManyToQueueRef = useRef(onAddManyToQueue);
+  onAddManyToQueueRef.current = onAddManyToQueue;
+  const defaultQueuedRef = useRef(false);
   useEffect(() => {
     // The ref guards against React StrictMode's double-invoke (and our own
     // "only-once-per-session" semantics). We set it BEFORE awaiting the
     // fetcher so the second strict-mode run bails — and intentionally
     // *don't* cancel the in-flight promise on cleanup. If we cancelled, the
     // first run's fetcher would resolve into a no-op while the second
-    // run's effect has already bailed on the ref, and music never starts.
-    if (defaultAutoplayedRef.current) return;
+    // run's effect has already bailed on the ref, and the queue stays empty.
+    if (defaultQueuedRef.current) return;
     if (!connected) return;
-    if (playback.trackUri) {
-      // Someone's already playing; don't override and don't re-trigger later.
-      defaultAutoplayedRef.current = true;
+    if (playback.trackUri || queue.length > 0) {
+      // Room already has something queued or playing; don't seed and don't
+      // re-trigger later.
+      defaultQueuedRef.current = true;
       return;
     }
     const raw = import.meta.env.VITE_DEFAULT_PLAYLIST_URL;
     if (!raw) return;
     // Accept one URL or a comma-separated list. Each entry can be a track,
     // album, or playlist URL/URI; we concatenate the resolved track URIs in
-    // source order before playing.
+    // source order before queueing.
     const entries = raw
       .split(',')
       .map((s) => s.trim())
@@ -431,7 +437,7 @@ export function useSpotifyPlayer({
       }
       targets.push(link);
     }
-    defaultAutoplayedRef.current = true;
+    defaultQueuedRef.current = true;
     // Resolve every source in parallel but keep order — Promise.all
     // preserves the input array's order regardless of resolution order.
     // Per-source failures (e.g. one 403'd playlist mixed in with valid
@@ -446,11 +452,16 @@ export function useSpotifyPlayer({
         } catch (e) {
           const msg = (e as Error).message;
           // eslint-disable-next-line no-console
-          console.warn(`[autoplay] ${t.kind} ${t.id} failed: ${msg}`);
+          console.warn(`[default-queue] ${t.kind} ${t.id} failed: ${msg}`);
           return [] as string[];
         }
       }),
     ).then((uriLists) => {
+      // The room's state arrives via socket asynchronously. The effect's
+      // initial render sees the empty default playback/queue and kicks off
+      // this fetch; if the server's actual state arrived in the meantime,
+      // don't clobber it with the default seed.
+      if (playbackRef.current.trackUri || queueRef.current.length > 0) return;
       const uris = uriLists.flat();
       if (uris.length === 0) {
         setError(
@@ -458,9 +469,16 @@ export function useSpotifyPlayer({
         );
         return;
       }
-      onPlayCollectionRef.current(uris);
+      // Surface the first track as the "selected" song so the dock chip
+      // has something to show, but leave it paused — the user picks when
+      // to hit play. Remaining tracks go straight into the queue.
+      const [first, ...rest] = uris;
+      onLocalChangeRef.current({ trackUri: first, isPlaying: false, positionMs: 0 });
+      if (rest.length > 0) {
+        onAddManyToQueueRef.current(rest);
+      }
     });
-  }, [connected, playback.trackUri]);
+  }, [connected, playback.trackUri, queue.length]);
 
   // ────────────── Track cache hydration ──────────────
   // Resolve URIs (for queue + current playback) to full track info so we can
