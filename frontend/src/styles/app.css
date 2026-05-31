@@ -1148,7 +1148,7 @@ input, textarea, select { font-size: 16px; }
 .dpad {
   position: absolute;
   right: var(--hud-pad);
-  bottom: 130px;
+  bottom: 168px;
   z-index: 95;
   width: calc(var(--dpad-cell) * 3);
   height: calc(var(--dpad-cell) * 3);
@@ -1187,11 +1187,11 @@ input, textarea, select { font-size: 16px; }
 .dpad-right { left: calc(var(--dpad-cell) * 2);       top: var(--dpad-cell); }
 .dpad-down  { left: var(--dpad-cell);                 top: calc(var(--dpad-cell) * 2); }
 
-/* Wander toggle — sits just above the D-pad. */
+/* Wander toggle — sits just below the D-pad. */
 .wander-btn {
   position: absolute;
   right: var(--hud-pad);
-  bottom: 226px;
+  bottom: 120px;
   z-index: 95;
   appearance: none;
   cursor: pointer;
