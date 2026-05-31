@@ -1,0 +1,29 @@
+# cya repo: docker-compose.yml
+services:
+  cya-frontend:
+    image: ${DOCKERHUB_USERNAME}/cya-frontend:${CYA_TAG:-latest}
+    restart: unless-stopped
+    networks:
+      - internal
+      - ${EXTERNAL_EDGE_NETWORK:-edge}  # so Caddy can reach it
+    depends_on:
+      - cya-backend
+    labels:
+      caddy: ${CYA_FRONTEND_HOST}
+      caddy.reverse_proxy: "{{upstreams ${CYA_FRONTEND_PORT}}}"
+
+  cya-backend:
+    image: ${DOCKERHUB_USERNAME}/cya-backend:${CYA_TAG:-latest}
+    restart: unless-stopped
+    networks:
+      - internal
+      - ${EXTERNAL_EDGE_NETWORK:-edge}  # so Caddy can reach it
+    labels:
+      caddy: ${CYA_BACKEND_HOST}
+      caddy.reverse_proxy: "{{upstreams ${CYA_BACKEND_PORT}}}"
+
+networks:
+  internal:
+  ${EXTERNAL_EDGE_NETWORK:-edge}:
+    external: true
+    name: ${EXTERNAL_EDGE_NETWORK:-edge}
