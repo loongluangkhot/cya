@@ -3,7 +3,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkBreaks from 'remark-breaks';
 import remarkGfm from 'remark-gfm';
 import { Sheet } from './Sheet';
-import { MEMO_MAX } from './MemoBlock';
+import { MEMO_MAX } from '../../constants';
 
 interface MemoEditorSheetProps {
   open: boolean;

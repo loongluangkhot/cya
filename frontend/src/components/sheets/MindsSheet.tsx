@@ -1,10 +1,10 @@
 import ReactMarkdown from 'react-markdown';
 import remarkBreaks from 'remark-breaks';
 import remarkGfm from 'remark-gfm';
-import PixelCharacter from './PixelCharacter';
+import PixelCharacter from '../PixelCharacter';
 import { Sheet } from './Sheet';
-import { colorHex } from '../characters';
-import type { User } from '../types';
+import { colorHex } from '../../characters';
+import type { User } from '../../types';
 
 interface MindsSheetProps {
   open: boolean;
