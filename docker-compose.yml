@@ -5,25 +5,25 @@ services:
     restart: unless-stopped
     networks:
       - internal
-      - ${EXTERNAL_EDGE_NETWORK:-edge}  # so Caddy can reach it
+      - edge
     depends_on:
       - cya-backend
     labels:
       caddy: ${CYA_FRONTEND_HOST}
-      caddy.reverse_proxy: "{{upstreams ${CYA_FRONTEND_PORT}}}"
+      caddy.reverse_proxy: "{{upstreams 3001}}"
 
   cya-backend:
     image: ${DOCKERHUB_USERNAME}/cya-backend:${CYA_TAG:-latest}
     restart: unless-stopped
     networks:
       - internal
-      - ${EXTERNAL_EDGE_NETWORK:-edge}  # so Caddy can reach it
+      - edge
     labels:
       caddy: ${CYA_BACKEND_HOST}
-      caddy.reverse_proxy: "{{upstreams ${CYA_BACKEND_PORT}}}"
+      caddy.reverse_proxy: "{{upstreams 8001}}"
 
 networks:
   internal:
-  ${EXTERNAL_EDGE_NETWORK:-edge}:
+  edge:  # so Caddy can reach it
     external: true
     name: ${EXTERNAL_EDGE_NETWORK:-edge}
