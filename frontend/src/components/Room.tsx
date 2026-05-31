@@ -4,14 +4,15 @@ import {
   useState,
   type FormEvent,
   type PointerEvent as ReactPointerEvent,
-  type ReactNode,
 } from 'react';
 import IsoScene from './IsoScene';
 import PixelCharacter from './PixelCharacter';
 import SpotifyPlayer from './SpotifyPlayer';
 import ErrorBoundary from './ErrorBoundary';
 import Icon from './Icon';
-import { MemoBlock } from './MemoBlock';
+import { MindsSheet } from './MindsSheet';
+import { MemoEditorSheet } from './MemoEditorSheet';
+import { Sheet } from './Sheet';
 import { effectivePosition } from './spotify/shared';
 import { colorHex } from '../characters';
 import { useToasts } from '../hooks/useToasts';
@@ -39,7 +40,7 @@ interface RoomProps {
   onMemoPersist: (memo: string) => void;
 }
 
-type Sheet = 'people' | 'chat' | 'music' | 'ambience' | null;
+type Sheet = 'people' | 'chat' | 'music' | 'ambience' | 'minds' | 'memo-editor' | null;
 
 export default function Room({ roomId, onEditMe, onLeave, onMemoPersist }: RoomProps) {
   const { toasts, pushToast } = useToasts();
@@ -84,19 +85,6 @@ export default function Room({ roomId, onEditMe, onLeave, onMemoPersist }: RoomP
 
   const [sheet, setSheet] = useState<Sheet>(null);
   const [draft, setDraft] = useState('');
-  // Which peer's memo block is open inside PeopleSheet. Lifted here so
-  // tapping a sticky note in the scene can open the sheet AND focus that
-  // user's memo in one go. We seed it to the local user's id once they're
-  // known, so the sheet opens with the user's own memo expanded — but
-  // tapping the head still collapses it, so behaviour stays symmetric
-  // with peer rows.
-  const [expandedMemoId, setExpandedMemoId] = useState<string | null>(null);
-  const seededExpandedRef = useRef(false);
-  useEffect(() => {
-    if (seededExpandedRef.current || !meId) return;
-    seededExpandedRef.current = true;
-    setExpandedMemoId(meId);
-  }, [meId]);
 
   function onSend(text: string) {
     if (!text.trim()) return;
@@ -145,10 +133,8 @@ export default function Room({ roomId, onEditMe, onLeave, onMemoPersist }: RoomP
         meId={meId}
         bubbles={bubbles}
         room={ambient.room}
-        onOpenMemo={(peerId) => {
-          setExpandedMemoId(peerId);
-          setSheet('people');
-        }}
+        onOpenMemo={() => setSheet('minds')}
+        onWriteMemo={() => setSheet('memo-editor')}
       />
       <AmbienceOverlay ambient={ambient} />
 
@@ -199,6 +185,7 @@ export default function Room({ roomId, onEditMe, onLeave, onMemoPersist }: RoomP
         onSend={onSend}
         onOpenMusic={() => setSheet('music')}
         onOpenAmbience={() => setSheet('ambience')}
+        onOpenMinds={() => setSheet('minds')}
         onOpenChat={() => setSheet('chat')}
         hasQueue={queue.length > 0}
         onPrev={dockPrev}
@@ -214,9 +201,6 @@ export default function Room({ roomId, onEditMe, onLeave, onMemoPersist }: RoomP
         peers={users}
         meId={meId}
         onEditMe={onEditMe}
-        onChangeMemo={changeMemo}
-        expandedMemoId={expandedMemoId}
-        onChangeExpandedMemoId={setExpandedMemoId}
       />
       <ChatLogSheet
         open={sheet === 'chat'}
@@ -239,6 +223,22 @@ export default function Room({ roomId, onEditMe, onLeave, onMemoPersist }: RoomP
         onClose={() => setSheet(null)}
         ambient={ambient}
         onChange={changeAmbient}
+      />
+      <MindsSheet
+        open={sheet === 'minds'}
+        onClose={() => setSheet(null)}
+        peers={users}
+        meId={meId}
+        onEditMine={() => setSheet('memo-editor')}
+      />
+      <MemoEditorSheet
+        open={sheet === 'memo-editor'}
+        initial={users.find((u) => u.id === meId)?.memo ?? ''}
+        onCancel={() => setSheet(null)}
+        onSave={(memo) => {
+          changeMemo(memo);
+          setSheet('minds');
+        }}
       />
 
     </div>
@@ -355,6 +355,7 @@ interface RoomDockProps {
   onSend: (text: string) => void;
   onOpenMusic: () => void;
   onOpenAmbience: () => void;
+  onOpenMinds: () => void;
   onOpenChat: () => void;
   hasQueue: boolean;
   onPrev: () => void;
@@ -403,6 +404,7 @@ function RoomDock({
   onSend,
   onOpenMusic,
   onOpenAmbience,
+  onOpenMinds,
   onOpenChat,
   hasQueue,
   onPrev,
@@ -492,6 +494,15 @@ function RoomDock({
         <button type="button" className="dock-chip compact" onClick={onOpenAmbience} aria-label="ambience">
           <span className="dock-chip-glyph">{ambientGlyph(ambient)}</span>
           <span className="dock-chip-meta" style={{ fontWeight: 700 }}>{ambient.time}</span>
+        </button>
+        <button
+          type="button"
+          className="dock-chip compact dock-chip-minds"
+          onClick={onOpenMinds}
+          aria-label="on everyone's mind"
+        >
+          <span className="dock-chip-glyph">✺</span>
+          <span className="dock-chip-meta" style={{ fontWeight: 700 }}>minds</span>
         </button>
       </div>
       <div className="composer">
@@ -846,56 +857,24 @@ function AmbienceOverlay({ ambient }: { ambient: Ambient }) {
 
 // ───────── Sheets ─────────
 
-interface SheetProps {
-  open: boolean;
-  title: string;
-  onClose: () => void;
-  children: ReactNode;
-  tall?: boolean;
-}
-
-function Sheet({ open, title, onClose, children, tall }: SheetProps) {
-  return (
-    <div className={`sheet-root ${open ? 'open' : 'closed'}`}>
-      <div className="sheet-backdrop" onClick={onClose} />
-      <div className={`sheet${tall ? ' tall' : ''}`}>
-        <div className="sheet-head">
-          <div className="sheet-title">{title}</div>
-          <button type="button" className="sheet-close" onClick={onClose} aria-label="close">
-            <Icon name="x" size={14} />
-          </button>
-        </div>
-        <div className="sheet-body">{children}</div>
-      </div>
-    </div>
-  );
-}
-
 function PeopleSheet({
   open,
   onClose,
   peers,
   meId,
   onEditMe,
-  onChangeMemo,
-  expandedMemoId,
-  onChangeExpandedMemoId,
 }: {
   open: boolean;
   onClose: () => void;
   peers: User[];
   meId: string | null;
   onEditMe: () => void;
-  onChangeMemo: (memo: string) => void;
-  expandedMemoId: string | null;
-  onChangeExpandedMemoId: (id: string | null) => void;
 }) {
   return (
     <Sheet open={open} onClose={onClose} title={`${peers.length} in the room`} tall>
       <div>
         {peers.map((p) => {
           const isMe = p.id === meId;
-          const expanded = expandedMemoId === p.id;
           return (
             <div key={p.id} className="person-row">
               <div className="person-row-head">
@@ -912,15 +891,6 @@ function PeopleSheet({
                   <span className="live-dot" />
                 )}
               </div>
-              <MemoBlock
-                memo={p.memo}
-                isMe={isMe}
-                expanded={expanded}
-                onToggle={() =>
-                  onChangeExpandedMemoId(expanded ? null : p.id)
-                }
-                onChange={isMe ? onChangeMemo : undefined}
-              />
             </div>
           );
         })}

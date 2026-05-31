@@ -1466,7 +1466,16 @@ input, textarea, select { font-size: 16px; }
   inset: 0;
   z-index: 300;
 }
-.sheet-root.closed { pointer-events: none; }
+.sheet-root.closed {
+  pointer-events: none;
+  /* After the slide-out transform finishes, fully hide the subtree so a
+     closed sheet can never leak through a stacking-context glitch. */
+  visibility: hidden;
+  transition: visibility 0s linear 0.28s;
+}
+.sheet-root.open {
+  visibility: visible;
+}
 .sheet-backdrop {
   position: absolute;
   inset: 0;
@@ -2126,3 +2135,156 @@ input, textarea, select { font-size: 16px; }
   background: var(--bg);
   overflow: hidden;
 }
+
+/* ───────── On My Mind — Direction C ───────── */
+
+/* Shares the position+pointer-events of .memo-note-icon (above) so the
+   "+" cue and the ✎ glyph that replaces it land on the same pixel. */
+.memo-note-add {
+  position: absolute;
+  top: 2px;
+  left: calc(50% + 16px);
+  appearance: none;
+  cursor: pointer;
+  pointer-events: auto;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  background: var(--bg);
+  color: var(--fg);
+  border: var(--border-w) dashed var(--fg);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  animation: memo-add-bob 2.6s ease-in-out infinite;
+}
+.memo-note-add:hover { background: #d6f0c2; border-style: solid; }
+@keyframes memo-add-bob {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-3px); }
+}
+
+.dock-chip-minds { position: relative; }
+
+.board-card {
+  position: relative;
+  display: flex;
+  gap: 10px;
+  padding: 11px;
+  margin-bottom: 10px;
+  background: #fff6c2;
+  color: #1a1a1a;
+  border: var(--border-w) solid var(--fg);
+  box-shadow: var(--shadow-hard);
+}
+.board-card.me { background: #d6f0c2; }
+.board-corner {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 14px;
+  height: 14px;
+  background: linear-gradient(225deg, var(--bg) 0 50%, transparent 50%);
+  border-left: var(--border-w) solid var(--fg);
+  border-bottom: var(--border-w) solid var(--fg);
+}
+.board-avatar {
+  width: 34px;
+  height: 34px;
+  flex-shrink: 0;
+  background: var(--surface);
+  border: var(--border-w) solid var(--fg);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  overflow: hidden;
+}
+.board-main { flex: 1; min-width: 0; }
+.board-name {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: var(--upper);
+  letter-spacing: var(--tracking);
+  color: var(--fg);
+  margin-bottom: 3px;
+}
+.board-text {
+  font-size: 13px;
+  line-height: 1.4;
+  color: #1a1a1a;
+}
+.board-text p { margin: 0 0 4px; }
+.board-text p:last-child { margin-bottom: 0; }
+.board-empty-cta {
+  appearance: none;
+  cursor: pointer;
+  width: 100%;
+  padding: 12px;
+  margin-bottom: 10px;
+  background: var(--bg);
+  border: var(--border-w) dashed var(--fg);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: var(--upper);
+  letter-spacing: var(--tracking);
+  color: var(--fg);
+  text-align: center;
+}
+.board-empty-cta:hover { background: #d6f0c2; border-style: solid; }
+.board-edit-link {
+  appearance: none;
+  cursor: pointer;
+  margin-top: 7px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: var(--upper);
+  letter-spacing: var(--tracking);
+  color: var(--fg);
+  border: var(--border-w) solid var(--fg);
+  background: var(--bg);
+  padding: 4px 8px;
+}
+.board-foot {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  color: var(--muted);
+  text-transform: var(--upper);
+  letter-spacing: var(--tracking);
+  text-align: center;
+  padding-top: 4px;
+  margin-top: 4px;
+}
+
+/* Memo editor sheet body — column layout that stretches the editor/preview
+   area to fill the sheet, with explicit spacing between tabs and actions. */
+.memo-editor-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  height: 100%;
+}
+.memo-editor-body .memo-editor,
+.memo-editor-body .memo-editor-preview {
+  flex: 1;
+  min-height: 180px;
+  margin: 0;
+}
+.memo-editor-body .memo-editor { resize: none; }
+.memo-editor-body .memo-editor-preview {
+  padding: 10px;
+  background: var(--surface-2);
+  border: var(--border-w) solid var(--scene-line);
+  overflow-y: auto;
+}
+.memo-editor-actions { margin-top: 2px; }
+.memo-editor-actions .text-link { margin-left: auto; }

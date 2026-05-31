@@ -24,6 +24,7 @@ interface PeerOnIsoProps {
   previewOpen: boolean;
   onTogglePreview: () => void;
   onSeeMore: () => void;
+  onWriteMemo?: () => void;
 }
 
 function PeerOnIso({
@@ -32,10 +33,12 @@ function PeerOnIso({
   previewOpen,
   onTogglePreview,
   onSeeMore,
+  onWriteMemo,
 }: PeerOnIsoProps) {
   const dur = isMe ? WALK_MS_ME : WALK_MS_OTHER;
   const { x, y } = isoFromPct(peer.x, peer.y);
   const hasMemo = peer.memo.trim().length > 0;
+  const showAddCue = isMe && !hasMemo && !!onWriteMemo;
 
   return (
     <div
@@ -90,6 +93,20 @@ function PeerOnIso({
             </svg>
           </button>
         )}
+        {showAddCue && (
+          <button
+            type="button"
+            className="memo-note-add"
+            aria-label="add a thought"
+            onClick={(e) => {
+              e.stopPropagation();
+              onWriteMemo();
+            }}
+            onPointerDown={(e) => e.stopPropagation()}
+          >
+            ＋
+          </button>
+        )}
         <div className="peer-shadow" />
         <PixelCharacter character={peer.character} color={colorHex(peer.color)} scale={3} />
         <div className={`peer-tag${isMe ? ' is-me' : ''}`}>
@@ -136,9 +153,10 @@ interface IsoSceneProps {
   bubbles: Record<string, BubbleState>;
   room: AmbientRoom;
   onOpenMemo: (peerId: string) => void;
+  onWriteMemo: () => void;
 }
 
-export default function IsoScene({ peers, meId, bubbles, room, onOpenMemo }: IsoSceneProps) {
+export default function IsoScene({ peers, meId, bubbles, room, onOpenMemo, onWriteMemo }: IsoSceneProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [manualPan, setManualPan] = useState({ x: 0, y: 0 });
   const [dragging, setDragging] = useState(false);
@@ -263,6 +281,7 @@ export default function IsoScene({ peers, meId, bubbles, room, onOpenMemo }: Iso
               setPreviewMemoId(null);
               onOpenMemo(p.id);
             }}
+            onWriteMemo={p.id === meId ? onWriteMemo : undefined}
           />
         ))}
 
