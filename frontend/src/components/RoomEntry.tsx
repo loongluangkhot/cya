@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { API_BASE } from '../api';
+import { loadIdentity, saveIdentity } from '../identity';
 import { socket } from '../socket';
 import { clearRoomJoined, isCurrentRoom, markRoomJoined } from '../roomState';
 import Room from './Room';
@@ -11,37 +12,6 @@ import {
   type OccupantPeek,
   SetupScreen,
 } from './Screens';
-
-const ME_KEY = 'cya:identity:v2';
-
-function loadIdentity(): Identity | null {
-  try {
-    const raw = localStorage.getItem(ME_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw);
-    if (
-      parsed &&
-      typeof parsed.name === 'string' &&
-      typeof parsed.color === 'string' &&
-      typeof parsed.character === 'string'
-    ) {
-      // Legacy identities (pre-memo) get migrated with an empty memo.
-      const memo = typeof parsed.memo === 'string' ? parsed.memo : '';
-      return { ...(parsed as Identity), memo };
-    }
-  } catch {
-    // ignore
-  }
-  return null;
-}
-
-function saveIdentity(me: Identity) {
-  try {
-    localStorage.setItem(ME_KEY, JSON.stringify(me));
-  } catch {
-    // ignore
-  }
-}
 
 function emitIdentityDiff(prev: Identity, next: Identity) {
   if (prev.name !== next.name) socket.emit('updateName', { name: next.name });

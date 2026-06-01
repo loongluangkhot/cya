@@ -10,26 +10,9 @@ import {
   SplashScreen,
 } from './components/Screens';
 import RoomEntry from './components/RoomEntry';
+import { ME_KEY, validateIdentity } from './identity';
 import { markRoomJoined } from './roomState';
 import { useStoredState } from './hooks/useStoredState';
-
-const ME_KEY = 'cya:identity:v2';
-
-function validateIdentity(parsed: unknown): Identity | null {
-  if (
-    parsed &&
-    typeof parsed === 'object' &&
-    typeof (parsed as Identity).name === 'string' &&
-    typeof (parsed as Identity).color === 'string' &&
-    typeof (parsed as Identity).character === 'string'
-  ) {
-    // Legacy identities (pre-memo) get migrated with an empty memo.
-    const memo =
-      typeof (parsed as Identity).memo === 'string' ? (parsed as Identity).memo : '';
-    return { ...(parsed as Identity), memo };
-  }
-  return null;
-}
 
 type LandingMode =
   | { kind: 'splash' }

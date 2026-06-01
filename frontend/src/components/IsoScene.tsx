@@ -1,151 +1,9 @@
 import { useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
-import ReactMarkdown from 'react-markdown';
-import remarkBreaks from 'remark-breaks';
-import remarkGfm from 'remark-gfm';
 import { IsoBackdrop } from './IsoBackdrop';
-import {
-  ISO_GRID,
-  ISO_TILE_H,
-  ISO_TILE_W,
-  ISO_WALL_H,
-  iso,
-  isoFromPct,
-} from '../iso';
-import PixelCharacter from './PixelCharacter';
-import { colorHex } from '../characters';
+import { PeerOnIso } from './scene/PeerOnIso';
+import { SpeechBubble } from './scene/SpeechBubble';
+import { ISO_GRID, ISO_TILE_H, ISO_TILE_W, ISO_WALL_H, iso, isoFromPct } from '../iso';
 import type { AmbientRoom, BubbleState, User } from '../types';
-
-const WALK_MS_ME = 220;
-const WALK_MS_OTHER = 1100;
-
-interface PeerOnIsoProps {
-  peer: User;
-  isMe: boolean;
-  previewOpen: boolean;
-  onTogglePreview: () => void;
-  onSeeMore: () => void;
-  onWriteMemo?: () => void;
-}
-
-function PeerOnIso({
-  peer,
-  isMe,
-  previewOpen,
-  onTogglePreview,
-  onSeeMore,
-  onWriteMemo,
-}: PeerOnIsoProps) {
-  const dur = isMe ? WALK_MS_ME : WALK_MS_OTHER;
-  const { x, y } = isoFromPct(peer.x, peer.y);
-  const hasMemo = peer.memo.trim().length > 0;
-  const showAddCue = isMe && !hasMemo && !!onWriteMemo;
-
-  return (
-    <div
-      className="peer-stage"
-      style={{
-        top: 'var(--iso-origin-y, 32%)',
-        transform: `translate3d(calc(-50% + ${x}px), calc(-82% + ${y}px), 0)`,
-        transition: `transform ${dur}ms linear`,
-        zIndex: previewOpen ? 240 : 50 + Math.round(peer.y),
-      }}
-    >
-      <div className="peer-stage-inner">
-        {previewOpen && (
-          <div
-            className="memo-note-preview"
-            onClick={(e) => e.stopPropagation()}
-            onPointerDown={(e) => e.stopPropagation()}
-          >
-            <div className="memo-note-preview-label">on my mind</div>
-            <div className="memo-note-preview-rendered memo-rendered">
-              <ReactMarkdown remarkPlugins={[remarkGfm, remarkBreaks]}>
-                {peer.memo}
-              </ReactMarkdown>
-            </div>
-            <button
-              type="button"
-              className="memo-note-more"
-              onClick={(e) => {
-                e.stopPropagation();
-                onSeeMore();
-              }}
-            >
-              see more →
-            </button>
-          </div>
-        )}
-        {hasMemo && (
-          <button
-            type="button"
-            className={`memo-note-icon${isMe ? ' is-me' : ''}${previewOpen ? ' open' : ''}`}
-            aria-label={`${peer.name}'s memo`}
-            onClick={(e) => {
-              e.stopPropagation();
-              onTogglePreview();
-            }}
-            onPointerDown={(e) => e.stopPropagation()}
-          >
-            <svg viewBox="0 0 16 16" aria-hidden="true">
-              <path d="M2 2 H11 L14 5 V14 H2 Z" fill="currentColor" stroke="rgba(0,0,0,0.35)" strokeWidth="1" strokeLinejoin="miter" />
-              <path d="M11 2 V5 H14" fill="none" stroke="rgba(0,0,0,0.35)" strokeWidth="1" />
-              <path d="M4.5 8 H10 M4.5 10.5 H9" stroke="rgba(0,0,0,0.45)" strokeWidth="1" strokeLinecap="square" />
-            </svg>
-          </button>
-        )}
-        {showAddCue && (
-          <button
-            type="button"
-            className="memo-note-add"
-            aria-label="add a thought"
-            onClick={(e) => {
-              e.stopPropagation();
-              onWriteMemo();
-            }}
-            onPointerDown={(e) => e.stopPropagation()}
-          >
-            ＋
-          </button>
-        )}
-        <div className="peer-shadow" />
-        <PixelCharacter character={peer.character} color={colorHex(peer.color)} scale={3} />
-        <div className={`peer-tag${isMe ? ' is-me' : ''}`}>
-          {peer.name}
-          {isMe ? '·you' : ''}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-interface SpeechBubbleProps {
-  peer: User;
-  text: string;
-  isMe: boolean;
-}
-
-function SpeechBubble({ peer, text, isMe }: SpeechBubbleProps) {
-  if (!text) return null;
-  const { x, y } = isoFromPct(peer.x, peer.y);
-  const c = colorHex(peer.color);
-  const dur = isMe ? WALK_MS_ME : WALK_MS_OTHER;
-  return (
-    <div
-      className="bubble"
-      style={{
-        top: 'var(--iso-origin-y, 32%)',
-        transform: `translate3d(calc(-50% + ${x}px), calc(-100% - 56px + ${y}px), 0)`,
-        transition: `transform ${dur}ms linear`,
-      }}
-    >
-      <div className="bubble-body" style={{ borderLeft: `4px solid ${c}` }}>
-        {text}
-        <div className="bubble-tail" />
-      </div>
-    </div>
-  );
-}
-
 
 interface IsoSceneProps {
   peers: User[];
@@ -262,10 +120,7 @@ export default function IsoScene({ peers, meId, bubbles, room, onOpenMemo, onWri
         </svg>
 
         {previewMemoId !== null && (
-          <div
-            className="memo-note-backdrop"
-            onPointerDown={() => setPreviewMemoId(null)}
-          />
+          <div className="memo-note-backdrop" onPointerDown={() => setPreviewMemoId(null)} />
         )}
 
         {sortedPeers.map((p) => (
@@ -274,9 +129,7 @@ export default function IsoScene({ peers, meId, bubbles, room, onOpenMemo, onWri
             peer={p}
             isMe={p.id === meId}
             previewOpen={previewMemoId === p.id}
-            onTogglePreview={() =>
-              setPreviewMemoId((cur) => (cur === p.id ? null : p.id))
-            }
+            onTogglePreview={() => setPreviewMemoId((cur) => (cur === p.id ? null : p.id))}
             onSeeMore={() => {
               setPreviewMemoId(null);
               onOpenMemo(p.id);
