@@ -28,6 +28,7 @@ export function MusicScreen(props: MusicScreenProps) {
 
   return (
     <div>
+      <div className="music-section-label">now playing</div>
       {trackId ? (
         <NowCard
           trackId={trackId}
@@ -44,14 +45,13 @@ export function MusicScreen(props: MusicScreenProps) {
         />
       ) : (
         <div className="yt-empty-now">
-          <div className="h-mono">now playing</div>
-          <div className="body-text" style={{ marginTop: 6 }}>
-            nothing yet — paste a youtube link below to start.
-          </div>
+          nothing yet — paste a youtube link below to start.
         </div>
       )}
 
-      <div className="music-section-label">add</div>
+      <div className="music-section-head">
+        <span className="music-section-label">search</span>
+      </div>
       <PasteBar
         onPlay={onPlay}
         onAddToQueue={onAddToQueue}
@@ -60,8 +60,13 @@ export function MusicScreen(props: MusicScreenProps) {
         onExpandPlaylist={onExpandPlaylist}
       />
 
-      <div className="music-section-label" style={{ marginTop: 4 }}>
-        up next · {queue.length}
+      <div className="music-section-head">
+        <span className="music-section-label">queue · {queue.length}</span>
+        {queue.length > 0 && (
+          <button type="button" className="music-section-action" onClick={onClearQueue}>
+            clear
+          </button>
+        )}
       </div>
       {queue.length === 0 ? (
         <div className="queue-empty">queue is empty.</div>
@@ -79,11 +84,6 @@ export function MusicScreen(props: MusicScreenProps) {
       )}
 
       <div className="music-footer">
-        {queue.length > 0 && (
-          <button type="button" className="music-footer-link" onClick={onClearQueue}>
-            clear queue
-          </button>
-        )}
         <button type="button" className="music-footer-link" onClick={onDisable}>
           turn off music
         </button>

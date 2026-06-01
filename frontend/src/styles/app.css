@@ -1840,16 +1840,52 @@ input, textarea, select { font-size: 16px; }
   background: var(--fg);
 }
 
+/* Section header inside the music sheet. The three top-level sections
+   (now playing, search, queue) each get one of these, with a dividing
+   line above so the sections read as distinct blocks. */
+.music-section-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 22px;
+  padding-top: 14px;
+  border-top: var(--border-w) solid var(--scene-line);
+  margin-bottom: 10px;
+}
+.music-section-head:first-child {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: 0;
+}
 .music-section-label {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: var(--upper);
+  letter-spacing: var(--tracking);
+  color: var(--fg);
+}
+/* Legacy in-flow usage (still emitted by PasteBar for "found a video" /
+   "searching…") — keep the label readable without the divider chrome. */
+.music-section-label:not(.music-section-head .music-section-label) {
+  display: block;
+  margin: 14px 0 8px;
+}
+.music-section-action {
+  appearance: none;
+  cursor: pointer;
+  background: transparent;
+  border: 0;
+  padding: 0;
   font-family: var(--font-mono);
   font-size: 10px;
   font-weight: 700;
   text-transform: var(--upper);
   letter-spacing: var(--tracking);
   color: var(--muted);
-  margin: 18px 0 8px;
 }
-.music-section-label:first-child { margin-top: 0; }
+.music-section-action:hover { color: var(--fg); }
 
 .spotify-row {
   display: flex;
@@ -2356,9 +2392,10 @@ input, textarea, select { font-size: 16px; }
 .yt-chip:active { transform: translate(1px, 1px); }
 .yt-pl-art { display: grid; place-items: center; background: var(--surface-2); color: var(--fg); }
 .yt-empty-now {
-  padding: 8px 0 18px;
-  border-bottom: var(--border-w) solid var(--scene-line);
-  margin-bottom: 16px;
+  padding: 6px 0 4px;
+  font-family: var(--font-body);
+  font-size: 13px;
+  color: var(--muted);
 }
 
 /* Player-mode toggle row (mini / theater / audio). */

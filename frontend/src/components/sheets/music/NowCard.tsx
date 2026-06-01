@@ -49,7 +49,6 @@ export function NowCard({
           style={{ objectFit: 'cover' }}
         />
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 4, minWidth: 0 }}>
-          <div className="h-mono">now playing</div>
           <div className="h-display yt-clamp" style={{ fontSize: 17 }}>
             {meta.title}
           </div>

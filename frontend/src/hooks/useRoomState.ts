@@ -188,12 +188,9 @@ export function useRoomState({ onToast }: UseRoomStateOpts): UseRoomStateResult 
       if (payload.id !== meRef.current && name) onToastRef.current(`${name} left`);
     }
     function handlePlaybackChanged(next: PlaybackState) {
-      // Toast outside the setter — putting side effects inside setPlayback
-      // would double-fire under React Strict Mode's double-invoke.
-      if (next.trackUri && next.trackUri !== lastToastedTrackRef.current) {
-        onToastRef.current('now playing · new track');
-      }
-      lastToastedTrackRef.current = next.trackUri;
+      // The toast itself fires from a separate effect that waits for
+      // the track's oEmbed title to arrive (see "Now-playing toast"
+      // below) — we just track the playback here.
       setPlayback(next);
     }
     function onQueueChanged(payload: { queue: string[] }) {
@@ -224,6 +221,29 @@ export function useRoomState({ onToast }: UseRoomStateOpts): UseRoomStateResult 
       socket.off('playbackChanged', handlePlaybackChanged);
     };
   }, []);
+
+  // ────────────── Now-playing toast ──────────────
+  // Fires once per track change. If the track's oEmbed title is already
+  // cached, the toast appears immediately with the real title; otherwise
+  // we wait briefly for the metadata fetch (below) to land and then fire.
+  // If the title never resolves (e.g. 401 / network failure) the timeout
+  // falls back to a generic message so the user still sees the toast.
+  useEffect(() => {
+    const id = playback.trackUri;
+    if (!id || lastToastedTrackRef.current === id) return;
+    const title = trackMeta[id]?.title?.trim();
+    if (title) {
+      onToastRef.current(`now playing · ${title}`);
+      lastToastedTrackRef.current = id;
+      return;
+    }
+    const timeout = window.setTimeout(() => {
+      if (lastToastedTrackRef.current === id) return;
+      onToastRef.current('now playing · new track');
+      lastToastedTrackRef.current = id;
+    }, 1500);
+    return () => window.clearTimeout(timeout);
+  }, [playback.trackUri, trackMeta]);
 
   // ────────────── Track metadata (oEmbed) ──────────────
   // Per-id title + art cache for the dock chip. Populated via YouTube's
