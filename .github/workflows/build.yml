@@ -51,7 +51,7 @@ jobs:
             # Tag :latest ONLY for main builds — never for feature branches
             type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
 
-      - name: Write .env file
+      - name: Write frontend .env file
         run: |
           cat > frontend/.env << 'EOF'
           ${{ vars.FRONTEND_ENV }}

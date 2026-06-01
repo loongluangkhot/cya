@@ -17,7 +17,11 @@ interface IconProps {
     | 'queue-add'
     | 'trash'
     | 'mic'
-    | 'mic-off';
+    | 'mic-off'
+    | 'list'
+    | 'screen'
+    | 'grip'
+    | 'yt';
   size?: number;
   color?: string;
 }
@@ -159,6 +163,36 @@ export default function Icon({ name, size = 18, color = 'currentColor' }: IconPr
           <path d="M5 11a7 7 0 0014 0" />
           <path d="M12 18v3M9 21h6" />
           <path d="M4 4l16 16" />
+        </svg>
+      );
+    case 'list':
+      return (
+        <svg {...common}>
+          <path d="M4 7h16M4 12h16M4 17h10" />
+        </svg>
+      );
+    case 'screen':
+      return (
+        <svg {...common}>
+          <rect x="3" y="5" width="18" height="12" rx="1" />
+          <path d="M8 21h8M12 17v4" />
+        </svg>
+      );
+    case 'grip':
+      return (
+        <svg width={size} height={size} viewBox="0 0 24 24" fill={color} stroke="none">
+          <circle cx="9" cy="6" r="1.4" />
+          <circle cx="15" cy="6" r="1.4" />
+          <circle cx="9" cy="12" r="1.4" />
+          <circle cx="15" cy="12" r="1.4" />
+          <circle cx="9" cy="18" r="1.4" />
+          <circle cx="15" cy="18" r="1.4" />
+        </svg>
+      );
+    case 'yt':
+      return (
+        <svg width={size} height={size} viewBox="0 0 24 24" fill={color} stroke="none">
+          <path d="M21.6 7.2a2.6 2.6 0 0 0-1.8-1.8C18 5 12 5 12 5s-6 0-7.8.4A2.6 2.6 0 0 0 2.4 7.2 27 27 0 0 0 2 12a27 27 0 0 0 .4 4.8 2.6 2.6 0 0 0 1.8 1.8C6 19 12 19 12 19s6 0 7.8-.4a2.6 2.6 0 0 0 1.8-1.8A27 27 0 0 0 22 12a27 27 0 0 0-.4-4.8zM10 15V9l5 3z" />
         </svg>
       );
     default:

@@ -1,46 +1,43 @@
-import {
-  useEffect,
-  useRef,
-  useState,
-  type FormEvent,
-  type PointerEvent as ReactPointerEvent,
-} from 'react';
+import { useEffect, useRef, useState } from 'react';
 import IsoScene from './IsoScene';
-import PixelCharacter from './PixelCharacter';
-import SpotifyPlayer from './SpotifyPlayer';
-import ErrorBoundary from './ErrorBoundary';
-import Icon from './Icon';
-import { MindsSheet } from './MindsSheet';
-import { MemoEditorSheet } from './MemoEditorSheet';
-import { Sheet } from './Sheet';
-import { effectivePosition } from './spotify/shared';
-import { colorHex } from '../characters';
-import { useToasts } from '../hooks/useToasts';
-import { useRoomState, formatVoiceDuration } from '../hooks/useRoomState';
+import { AmbienceOverlay } from './room/AmbienceOverlay';
+import { DPad } from './room/DPad';
+import { IrcLog } from './room/IrcLog';
+import { RoomDock } from './room/RoomDock';
+import { RoomTopBar } from './room/RoomTopBar';
+import { RoomVideo, type RoomPlacement } from './room/RoomVideo';
+import { Toasts } from './room/Toasts';
+import { AmbienceSheet } from './sheets/AmbienceSheet';
+import { ChatLogSheet } from './sheets/ChatLogSheet';
+import { MemoEditorSheet } from './sheets/MemoEditorSheet';
+import { MindsSheet } from './sheets/MindsSheet';
+import { MusicSheet, type PlayerMode } from './sheets/MusicSheet';
+import { PeopleSheet } from './sheets/PeopleSheet';
 import { useMovement } from '../hooks/useMovement';
-import { useSpotifyPlayer, type UseSpotifyPlayerResult } from '../hooks/useSpotifyPlayer';
-import { useVoiceRecorder } from '../hooks/useVoiceRecorder';
-import { API_BASE } from '../api';
-import type {
-  Ambient,
-  AmbientRoom,
-  AmbientTime,
-  AmbientWeather,
-  ChatMessage,
-  PlaybackState,
-  User,
-} from '../types';
+import { useRoomState } from '../hooks/useRoomState';
+import { useStoredState } from '../hooks/useStoredState';
+import { useToasts } from '../hooks/useToasts';
+import { useYoutubePlayer } from '../hooks/useYoutubePlayer';
+import type { User } from '../types';
 
 interface RoomProps {
   roomId: string;
   onEditMe: () => void;
   onLeave: () => void;
-  /** Persist a memo change back to the user's localStorage identity, so
-      it travels into the next room they join. */
   onMemoPersist: (memo: string) => void;
 }
 
-type Sheet = 'people' | 'chat' | 'music' | 'ambience' | 'minds' | 'memo-editor' | null;
+type SheetId = 'people' | 'chat' | 'music' | 'ambience' | 'minds' | 'memo-editor' | null;
+
+const PLAYER_MODE_KEY = 'cya:yt:mode:v1';
+const ROOM_PLACEMENT_KEY = 'cya:yt:room:v1';
+
+function validatePlayerMode(v: unknown): PlayerMode | null {
+  return v === 'theater' || v === 'audio' ? v : null;
+}
+function validateRoomPlacement(v: unknown): RoomPlacement | null {
+  return v === 'corner' || v === 'wall' || v === 'off' ? v : null;
+}
 
 export default function Room({ roomId, onEditMe, onLeave, onMemoPersist }: RoomProps) {
   const { toasts, pushToast } = useToasts();
@@ -68,23 +65,60 @@ export default function Room({ roomId, onEditMe, onLeave, onMemoPersist }: RoomP
   } = useRoomState({ onToast: pushToast });
   const { nudge, wandering, setWandering } = useMovement({ meId, users, setUsers });
 
-  // Spotify SDK lives at Room scope so the dock chip can reflect *this
-  // user's* actual audio state — not just whatever the room thinks is
-  // playing. When you first enter a room with Spotify already connected,
-  // the SDK takes a beat to load and transfer playback; during that gap
-  // the chip should say "starting…" rather than misleadingly say "playing".
-  const player = useSpotifyPlayer({
+  const [playerMode, setPlayerMode] = useStoredState<PlayerMode>(PLAYER_MODE_KEY, 'audio', validatePlayerMode);
+  const [roomPlacement, setRoomPlacement] = useStoredState<RoomPlacement>(
+    ROOM_PLACEMENT_KEY,
+    'corner',
+    validateRoomPlacement,
+  );
+
+  const ytPlayer = useYoutubePlayer({
     playback,
-    queue,
-    onLocalChange: changePlayback,
-    onAddToQueue: addToQueue,
-    onAddManyToQueue: addManyToQueue,
-    onPlayCollection: playCollection,
-    onAdvanceQueue: advanceQueue,
+    onEnded: () => advanceQueue(playback.trackUri),
   });
 
-  const [sheet, setSheet] = useState<Sheet>(null);
+  const [sheet, setSheet] = useState<SheetId>(null);
   const [draft, setDraft] = useState('');
+
+  // Player stays mounted across sheet open/close — we move it between
+  // surfaces (music sheet stage, in-room video, hidden audio host).
+  const sheetStageRef = useRef<HTMLDivElement | null>(null);
+  const roomStageRef = useRef<HTMLDivElement | null>(null);
+  const audioHostRef = useRef<HTMLDivElement | null>(null);
+
+  // Remember the last non-off placement so the dock toggle can restore it.
+  const lastVisiblePlacementRef = useRef<RoomPlacement>('corner');
+  useEffect(() => {
+    if (roomPlacement !== 'off') lastVisiblePlacementRef.current = roomPlacement;
+  }, [roomPlacement]);
+
+  // Decide which surface the player mounts into. Priority:
+  // audio-only → hidden host; music sheet open → sheet; else if room
+  // placement is on → room video; else → hidden host (audio keeps going).
+  // startAt extrapolates the room's last reported position by the time
+  // elapsed since that report, so a new joiner drops in mid-track.
+  useEffect(() => {
+    if (!ytPlayer.enabled || !playback.trackUri) {
+      ytPlayer.attach(null, null);
+      return;
+    }
+    let container: HTMLElement | null;
+    if (playerMode === 'audio') container = audioHostRef.current;
+    else if (sheet === 'music') container = sheetStageRef.current;
+    else if (roomPlacement !== 'off') container = roomStageRef.current;
+    else container = audioHostRef.current;
+    if (!container) return;
+    const elapsedMs = playback.isPlaying
+      ? Date.now() - playback.positionUpdatedAt
+      : 0;
+    const startAt = (playback.positionMs + elapsedMs) / 1000;
+    ytPlayer.attach(container, {
+      videoId: playback.trackUri,
+      startAt,
+      playing: playback.isPlaying,
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ytPlayer.enabled, playback.trackUri, playerMode, sheet, roomPlacement]);
 
   function onSend(text: string) {
     if (!text.trim()) return;
@@ -97,34 +131,58 @@ export default function Room({ roomId, onEditMe, onLeave, onMemoPersist }: RoomP
     onMemoPersist(memo);
   }
 
-  // Dock chip playback controls — operate on the shared room playback
-  // state, not the local SDK. Whoever's connected applies them.
-  function dockPrev() {
+  // Shared playback controls — these flip room state, which every
+  // connected client (including this one) reacts to via the sync effect
+  // inside useYoutubePlayer.
+  function dockRestart() {
     if (!playback.trackUri) return;
-    changePlayback({
-      trackUri: playback.trackUri,
-      isPlaying: true,
-      positionMs: 0,
-    });
+    changePlayback({ trackUri: playback.trackUri, isPlaying: true, positionMs: 0 });
   }
   function dockTogglePlay() {
     if (!playback.trackUri) return;
     changePlayback({
       trackUri: playback.trackUri,
       isPlaying: !playback.isPlaying,
-      positionMs: effectivePosition(playback),
+      positionMs: ytPlayer.getPositionMs(),
     });
   }
   function dockNext() {
     advanceQueue(playback.trackUri);
   }
+  function playTrack(videoId: string) {
+    changePlayback({ trackUri: videoId, isPlaying: true, positionMs: 0 });
+  }
+
+  function toggleRoomVideo() {
+    if (roomPlacement === 'off') setRoomPlacement(lastVisiblePlacementRef.current);
+    else setRoomPlacement('off');
+  }
+
+  // Local opt-out — unsubscribe from the room's shared music. The room's
+  // playback and queue keep going for everyone else; re-enabling here just
+  // resumes at whatever the shared state is now.
+  function turnOffMusic() {
+    ytPlayer.disable();
+  }
+
+  function expandPlaylist(playlistId: string): Promise<string[]> {
+    return ytPlayer.expandPlaylist(playlistId);
+  }
 
   const peersById: Record<string, User> = Object.fromEntries(users.map((u) => [u.id, u]));
+  const dockMeta = !ytPlayer.enabled
+    ? 'off'
+    : !playback.trackUri
+      ? 'tap to set a track'
+      : playback.isPlaying
+        ? 'playing'
+        : 'paused';
 
-  // What the dock chip's status line should read. When the user is
-  // connected to Spotify we trust the local SDK — otherwise fall back to
-  // shared room state (the only signal a non-connected viewer has).
-  const dockPlaybackLabel = computeDockPlaybackLabel(playback, player);
+  const showRoomVideo =
+    ytPlayer.enabled &&
+    !!playback.trackUri &&
+    sheet !== 'music' &&
+    roomPlacement !== 'off';
 
   return (
     <div className="room-root">
@@ -138,9 +196,26 @@ export default function Room({ roomId, onEditMe, onLeave, onMemoPersist }: RoomP
       />
       <AmbienceOverlay ambient={ambient} />
 
+      {/* Hidden host keeps audio alive when no visible surface is mounted. */}
+      <div ref={audioHostRef} className="yt-audio-host" aria-hidden="true" />
+
+      {showRoomVideo && playback.trackUri && (
+        <RoomVideo
+          trackId={playback.trackUri}
+          placement={roomPlacement === 'wall' ? 'wall' : 'corner'}
+          audioOnly={playerMode === 'audio'}
+          isPlaying={playback.isPlaying}
+          hasQueue={queue.length > 0}
+          stageRef={roomStageRef}
+          onOpen={() => setSheet('music')}
+          onTogglePlay={dockTogglePlay}
+          onNext={dockNext}
+          onClose={() => setRoomPlacement('off')}
+        />
+      )}
+
       <DPad
         onNudge={(dx, dy) => {
-          // Any manual D-pad input cancels wander.
           setWandering(false);
           nudge(dx, dy);
         }}
@@ -165,21 +240,16 @@ export default function Room({ roomId, onEditMe, onLeave, onMemoPersist }: RoomP
 
       <RoomDock
         ambient={ambient}
-        spotifyConnected={player.connected}
         roomId={roomId}
         onSendVoice={sendVoice}
         playback={playback}
-        playbackLabel={dockPlaybackLabel}
-        trackArt={
-          player.connected && playback.trackUri
-            ? trackMeta[playback.trackUri]?.art
-            : undefined
-        }
-        trackTitle={
-          player.connected && playback.trackUri
-            ? trackMeta[playback.trackUri]?.title
-            : undefined
-        }
+        playbackMeta={dockMeta}
+        musicEnabled={ytPlayer.enabled}
+        trackArt={playback.trackUri ? trackMeta[playback.trackUri]?.art : undefined}
+        trackTitle={playback.trackUri ? trackMeta[playback.trackUri]?.title : undefined}
+        audioOnly={playerMode === 'audio'}
+        roomVideoOn={roomPlacement !== 'off'}
+        onToggleRoomVideo={toggleRoomVideo}
         draft={draft}
         setDraft={setDraft}
         onSend={onSend}
@@ -188,7 +258,7 @@ export default function Room({ roomId, onEditMe, onLeave, onMemoPersist }: RoomP
         onOpenMinds={() => setSheet('minds')}
         onOpenChat={() => setSheet('chat')}
         hasQueue={queue.length > 0}
-        onPrev={dockPrev}
+        onPrev={dockRestart}
         onTogglePlay={dockTogglePlay}
         onNext={dockNext}
       />
@@ -212,11 +282,26 @@ export default function Room({ roomId, onEditMe, onLeave, onMemoPersist }: RoomP
       <MusicSheet
         open={sheet === 'music'}
         onClose={() => setSheet(null)}
-        player={player}
+        enabled={ytPlayer.enabled}
+        onEnable={ytPlayer.enable}
+        onDisable={turnOffMusic}
         playback={playback}
         queue={queue}
+        stageRef={sheetStageRef}
+        playerMode={playerMode}
+        onChangePlayerMode={setPlayerMode}
+        currentSec={ytPlayer.currentSec}
+        durationSec={ytPlayer.durationSec}
+        onTogglePlay={dockTogglePlay}
+        onRestart={dockRestart}
+        onNext={dockNext}
+        onPlay={playTrack}
+        onAddToQueue={addToQueue}
+        onPlayCollection={playCollection}
+        onAddManyToQueue={addManyToQueue}
         onRemoveFromQueue={removeFromQueue}
         onClearQueue={clearQueue}
+        onExpandPlaylist={expandPlaylist}
       />
       <AmbienceSheet
         open={sheet === 'ambience'}
@@ -240,839 +325,6 @@ export default function Room({ roomId, onEditMe, onLeave, onMemoPersist }: RoomP
           setSheet('minds');
         }}
       />
-
-    </div>
-  );
-}
-
-// ───────── Top bar ─────────
-
-interface RoomTopBarProps {
-  roomId: string;
-  peers: User[];
-  onOpenPeople: () => void;
-  onLeave: () => void;
-}
-
-function RoomTopBar({ roomId, peers, onOpenPeople, onLeave }: RoomTopBarProps) {
-  const displayName = roomId.replace(/-/g, ' ');
-  const host = typeof window !== 'undefined' ? window.location.host : '';
-  const stackOffset = Math.min(2, peers.length - 1);
-  const headsToShow = peers.slice(0, 3);
-  const [copied, setCopied] = useState(false);
-
-  async function copyRoomLink() {
-    if (typeof window === 'undefined') return;
-    const url = window.location.href;
-    let ok = false;
-    // Preferred: modern Clipboard API. Requires a secure context (HTTPS
-    // or localhost). Silently throws otherwise.
-    try {
-      if (navigator.clipboard?.writeText) {
-        await navigator.clipboard.writeText(url);
-        ok = true;
-      }
-    } catch {
-      // fall through to execCommand fallback below
-    }
-    // Fallback: hidden textarea + execCommand('copy'). Works in insecure
-    // contexts (HTTP, LAN IPs).
-    if (!ok) {
-      try {
-        const ta = document.createElement('textarea');
-        ta.value = url;
-        ta.setAttribute('readonly', '');
-        ta.style.position = 'fixed';
-        ta.style.top = '0';
-        ta.style.left = '0';
-        ta.style.opacity = '0';
-        document.body.appendChild(ta);
-        ta.focus();
-        ta.select();
-        ok = document.execCommand('copy');
-        document.body.removeChild(ta);
-      } catch {
-        // give up
-      }
-    }
-    // Always show feedback so the click never feels like a no-op — if
-    // both paths failed, the user can still long-press the title to copy
-    // manually but at least sees acknowledgment.
-    setCopied(true);
-    window.setTimeout(() => setCopied(false), 1400);
-    if (!ok) {
-      // eslint-disable-next-line no-console
-      console.warn('copyRoomLink: clipboard write failed in both code paths');
-    }
-  }
-
-  return (
-    <div className="room-top">
-      <button
-        type="button"
-        className="room-top-title"
-        onClick={copyRoomLink}
-        aria-label="copy room link"
-        title="copy room link"
-      >
-        <span className={`slug${copied ? ' copied' : ''}`}>
-          {copied ? 'copied to clipboard ✓' : `${host}/r/${roomId}`}
-        </span>
-        <span className="name">{displayName}</span>
-      </button>
-      <div className="room-top-actions">
-        <button type="button" className="people-pill" onClick={onOpenPeople}>
-          <div className="head-stack" style={{ width: 22 + Math.max(0, stackOffset) * 12 }}>
-            {headsToShow.map((p, i) => (
-              <div key={p.id} className="head" style={{ left: i * 12 }}>
-                <PixelCharacter character={p.character} color={colorHex(p.color)} scale={2} crop="head" />
-              </div>
-            ))}
-          </div>
-          <span style={{ marginLeft: 4 }}>{peers.length}</span>
-        </button>
-        <button type="button" className="icon-btn" aria-label="leave" onClick={onLeave}>
-          <Icon name="leave" size={16} />
-        </button>
-      </div>
-    </div>
-  );
-}
-
-// ───────── Dock ─────────
-
-interface RoomDockProps {
-  ambient: Ambient;
-  spotifyConnected: boolean;
-  roomId: string;
-  onSendVoice: (audio: ArrayBuffer, durationMs: number, mime: string) => void;
-  playback: PlaybackState;
-  playbackLabel: string;
-  trackArt: string | undefined;
-  trackTitle: string | undefined;
-  draft: string;
-  setDraft: (v: string) => void;
-  onSend: (text: string) => void;
-  onOpenMusic: () => void;
-  onOpenAmbience: () => void;
-  onOpenMinds: () => void;
-  onOpenChat: () => void;
-  hasQueue: boolean;
-  onPrev: () => void;
-  onTogglePlay: () => void;
-  onNext: () => void;
-}
-
-function computeDockPlaybackLabel(
-  playback: PlaybackState,
-  player: UseSpotifyPlayerResult,
-): string {
-  // Users who haven't connected Spotify can't hear anything, so the chip
-  // is purely a CTA — don't leak what others in the room are playing.
-  if (!player.connected) return 'connect spotify';
-  if (!playback.trackUri) return 'tap to set a track';
-  // While the local SDK is still spinning up, the room's "playing" state
-  // hasn't translated into audio yet — say so. Once status resolves
-  // (ready / premium-required / error), trust the room state: users
-  // without Premium can never make the SDK report local playback, and
-  // we don't want the chip stuck on "starting…" for them.
-  const sdkSpinningUp = player.status === 'idle' || player.status === 'loading';
-  if (sdkSpinningUp && playback.isPlaying) return 'starting…';
-  return playback.isPlaying ? 'playing' : 'paused';
-}
-
-function ambientGlyph(a: Ambient): string {
-  if (a.weather === 'rain') return '☂';
-  if (a.weather === 'snow') return '❄';
-  if (a.weather === 'fog') return '≈';
-  if (a.time === 'night') return '☾';
-  if (a.time === 'dawn') return '☀';
-  if (a.time === 'dusk') return '☉';
-  return '☀';
-}
-
-function RoomDock({
-  ambient,
-  spotifyConnected,
-  onSendVoice,
-  playback,
-  playbackLabel,
-  trackArt,
-  trackTitle,
-  draft,
-  setDraft,
-  onSend,
-  onOpenMusic,
-  onOpenAmbience,
-  onOpenMinds,
-  onOpenChat,
-  hasQueue,
-  onPrev,
-  onTogglePlay,
-  onNext,
-}: RoomDockProps) {
-  // Only surface the track to users who can actually hear it. Otherwise
-  // the chip degrades into a "connect spotify" CTA.
-  const showTrack = spotifyConnected && !!playback.trackUri;
-  const recorder = useVoiceRecorder();
-  const recording = recorder.status === 'recording';
-  function submit(e: FormEvent) {
-    e.preventDefault();
-    onSend(draft);
-  }
-  async function micDown(e: ReactPointerEvent<HTMLButtonElement>) {
-    e.preventDefault();
-    e.currentTarget.setPointerCapture?.(e.pointerId);
-    await recorder.start();
-  }
-  async function micUp() {
-    if (!recording) {
-      recorder.cancel();
-      return;
-    }
-    const clip = await recorder.stop();
-    if (clip) onSendVoice(clip.audio, clip.durationMs, clip.mime);
-  }
-  function micCancel() {
-    recorder.cancel();
-  }
-  return (
-    <form className="dock" onSubmit={submit}>
-      <div className="dock-chips">
-        <div className="dock-chip dock-chip-music">
-          <button type="button" className="dock-chip-open" onClick={onOpenMusic}>
-            {showTrack && trackArt ? (
-              <img
-                src={trackArt}
-                className="dock-chip-art"
-                alt=""
-                style={{ objectFit: 'cover' }}
-              />
-            ) : (
-              <div
-                className="dock-chip-art"
-                style={{ background: 'linear-gradient(135deg, #2b2118 0%, #b54822 100%)' }}
-              />
-            )}
-            <div className="dock-chip-text">
-              <div className="dock-chip-title">
-                {showTrack ? (trackTitle || 'now playing') : 'music'}
-              </div>
-              <div className="dock-chip-meta">{playbackLabel}</div>
-            </div>
-          </button>
-          {showTrack && (
-            <div className="dock-chip-controls">
-              <button
-                type="button"
-                className="dock-chip-ctrl"
-                aria-label="previous"
-                onClick={onPrev}
-              >
-                <Icon name="prev" size={12} />
-              </button>
-              <button
-                type="button"
-                className="dock-chip-ctrl primary"
-                aria-label={playback.isPlaying ? 'pause' : 'play'}
-                onClick={onTogglePlay}
-              >
-                <Icon name={playback.isPlaying ? 'pause' : 'play'} size={12} />
-              </button>
-              <button
-                type="button"
-                className="dock-chip-ctrl"
-                aria-label="next"
-                onClick={onNext}
-                disabled={!hasQueue}
-              >
-                <Icon name="next" size={12} />
-              </button>
-            </div>
-          )}
-        </div>
-        <button type="button" className="dock-chip compact" onClick={onOpenAmbience} aria-label="ambience">
-          <span className="dock-chip-glyph">{ambientGlyph(ambient)}</span>
-          <span className="dock-chip-meta" style={{ fontWeight: 700 }}>{ambient.time}</span>
-        </button>
-        <button
-          type="button"
-          className="dock-chip compact dock-chip-minds"
-          onClick={onOpenMinds}
-          aria-label="on everyone's mind"
-        >
-          <span className="dock-chip-glyph">✺</span>
-          <span className="dock-chip-meta" style={{ fontWeight: 700 }}>minds</span>
-        </button>
-      </div>
-      <div className="composer">
-        {recording ? (
-          <div className="composer-input is-recording" aria-live="polite">
-            <span className="rec-dot" aria-hidden="true" />
-            <span>recording… {formatVoiceDuration(recorder.elapsedMs)}</span>
-            <span className="rec-hint">release to send</span>
-          </div>
-        ) : (
-          <input
-            className="composer-input"
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            placeholder="say something…"
-            maxLength={200}
-            disabled={recorder.status === 'requesting'}
-          />
-        )}
-        <button
-          type="button"
-          className="composer-btn"
-          aria-label="open log"
-          onClick={onOpenChat}
-          disabled={recording}
-        >
-          <Icon name="chat" size={18} />
-        </button>
-        {draft.trim() ? (
-          <button type="submit" className="composer-btn is-send" aria-label="send">
-            <Icon name="send" size={16} />
-          </button>
-        ) : (
-          <button
-            type="button"
-            className={`composer-btn is-mic${recording ? ' is-recording' : ''}`}
-            aria-label={recording ? 'release to send voice message' : 'hold to record voice message'}
-            onPointerDown={micDown}
-            onPointerUp={micUp}
-            onPointerCancel={micCancel}
-          >
-            <Icon name="mic" size={16} />
-          </button>
-        )}
-      </div>
-      {recorder.status === 'denied' && (
-        <div className="composer-error">microphone access denied — check browser permissions</div>
-      )}
-      {recorder.status === 'unsupported' && (
-        <div className="composer-error">voice messages aren't supported in this browser</div>
-      )}
-    </form>
-  );
-}
-
-// ───────── D-pad ─────────
-
-interface DPadProps {
-  onNudge: (dx: number, dy: number) => void;
-}
-
-function DPad({ onNudge }: DPadProps) {
-  const containerRef = useRef<HTMLDivElement | null>(null);
-  const intervalRef = useRef<number | null>(null);
-  const dirRef = useRef<{ dx: number; dy: number }>({ dx: 0, dy: 0 });
-  const activePointerRef = useRef<number | null>(null);
-  const [activeDir, setActiveDir] = useState<{ dx: number; dy: number } | null>(null);
-
-  // Map pointer position → 8-way direction. The whole 3×3 cross is one
-  // virtual stick: the angle from the center decides which way we walk,
-  // so a tap on the up arrow and a drag toward the top-left both work.
-  function pointerDir(clientX: number, clientY: number): { dx: number; dy: number } {
-    const el = containerRef.current;
-    if (!el) return { dx: 0, dy: 0 };
-    const rect = el.getBoundingClientRect();
-    const cx = rect.left + rect.width / 2;
-    const cy = rect.top + rect.height / 2;
-    const ox = clientX - cx;
-    const oy = clientY - cy;
-    // Dead zone in the center cell — touching the core shouldn't drift.
-    if (Math.hypot(ox, oy) < rect.width * 0.16) return { dx: 0, dy: 0 };
-    // 8 sectors: divide 2π into eighths, snap to the nearest cardinal/diagonal.
-    const sector = ((Math.round(Math.atan2(oy, ox) / (Math.PI / 4)) % 8) + 8) % 8;
-    // 0=E, 1=SE, 2=S, 3=SW, 4=W, 5=NW, 6=N, 7=NE
-    const table: [number, number][] = [
-      [1, 0], [1, 1], [0, 1], [-1, 1], [-1, 0], [-1, -1], [0, -1], [1, -1],
-    ];
-    const [dx, dy] = table[sector];
-    return { dx, dy };
-  }
-
-  function applyDir(dir: { dx: number; dy: number }) {
-    dirRef.current = dir;
-    setActiveDir(dir.dx === 0 && dir.dy === 0 ? null : dir);
-  }
-
-  function onDown(e: ReactPointerEvent<HTMLDivElement>) {
-    if (activePointerRef.current !== null) return;
-    e.preventDefault();
-    e.currentTarget.setPointerCapture?.(e.pointerId);
-    activePointerRef.current = e.pointerId;
-    const dir = pointerDir(e.clientX, e.clientY);
-    applyDir(dir);
-    if (dir.dx || dir.dy) onNudge(dir.dx, dir.dy);
-    if (intervalRef.current !== null) clearInterval(intervalRef.current);
-    intervalRef.current = window.setInterval(() => {
-      const d = dirRef.current;
-      if (d.dx || d.dy) onNudge(d.dx, d.dy);
-    }, 130);
-  }
-  function onMove(e: ReactPointerEvent<HTMLDivElement>) {
-    if (activePointerRef.current !== e.pointerId) return;
-    applyDir(pointerDir(e.clientX, e.clientY));
-  }
-  function onUp(e: ReactPointerEvent<HTMLDivElement>) {
-    if (activePointerRef.current !== e.pointerId) return;
-    activePointerRef.current = null;
-    applyDir({ dx: 0, dy: 0 });
-    if (intervalRef.current !== null) {
-      clearInterval(intervalRef.current);
-      intervalRef.current = null;
-    }
-  }
-  useEffect(
-    () => () => {
-      if (intervalRef.current !== null) clearInterval(intervalRef.current);
-    },
-    [],
-  );
-
-  // Visual cell. Highlights when its direction matches the current
-  // 8-way input — cardinal cells light up for diagonal inputs too.
-  function cell(dx: number, dy: number, glyph: string, klass: string) {
-    const active =
-      activeDir !== null &&
-      (dx === 0 || activeDir.dx === dx) &&
-      (dy === 0 || activeDir.dy === dy) &&
-      !(dx === 0 && dy === 0);
-    return (
-      <div className={`dpad-btn ${klass}${active ? ' is-active' : ''}`} aria-hidden="true">
-        {glyph}
-      </div>
-    );
-  }
-
-  return (
-    <div
-      ref={containerRef}
-      className="dpad"
-      aria-label="movement controls"
-      onPointerDown={onDown}
-      onPointerMove={onMove}
-      onPointerUp={onUp}
-      onPointerCancel={onUp}
-    >
-      {cell(0, -1, '▲', 'dpad-up')}
-      {cell(-1, 0, '◀', 'dpad-left')}
-      <div className="dpad-core" aria-hidden="true" />
-      {cell(1, 0, '▶', 'dpad-right')}
-      {cell(0, 1, '▼', 'dpad-down')}
-    </div>
-  );
-}
-
-// ───────── Toasts ─────────
-
-function Toasts({ items }: { items: { id: string; text: string }[] }) {
-  if (items.length === 0) return null;
-  return (
-    <div className="toasts">
-      {items.map((t) => (
-        <div key={t.id} className="toast">{t.text}</div>
-      ))}
-    </div>
-  );
-}
-
-// ───────── IRC log ─────────
-
-interface IrcLogProps {
-  messages: ChatMessage[];
-  peersById: Record<string, User>;
-  roomId: string;
-}
-
-function IrcLog({ messages, peersById, roomId }: IrcLogProps) {
-  return (
-    <div className="irc-log">
-      {messages.map((m) => {
-        const peer = peersById[m.userId];
-        const c = peer ? colorHex(peer.color) : colorHex(m.color);
-        const age = Date.now() - m.timestamp;
-        const opacity = Math.max(0.45, 1 - age / 16000);
-        return (
-          <div className="irc-row" key={m.id} style={{ opacity }}>
-            <span className="irc-name" style={{ color: c }}>&lt;{m.name}&gt;</span>
-            {m.kind === 'voice' ? (
-              <span style={{ marginLeft: 6 }}>
-                <VoicePlayer
-                  roomId={roomId}
-                  messageId={m.id}
-                  durationMs={m.audioDurationMs}
-                  mime={m.audioMime}
-                  expired={m.audioExpired}
-                  compact
-                />
-              </span>
-            ) : (
-              <span style={{ marginLeft: 6 }}>{m.text}</span>
-            )}
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
-// ───────── Voice player ─────────
-
-interface VoicePlayerProps {
-  roomId: string;
-  messageId: string;
-  durationMs: number;
-  mime: string;
-  expired: boolean;
-  /** Smaller variant for the IRC log overlay. */
-  compact?: boolean;
-}
-
-// Module-scoped "active player" slot. A voice clip starts by stopping
-// whoever's currently in this slot, then claiming it. We keep the
-// previous player's `release` fn so it can update its own UI to paused.
-let activeVoiceRelease: (() => void) | null = null;
-
-function VoicePlayer({ roomId, messageId, durationMs, mime, expired, compact }: VoicePlayerProps) {
-  const [playing, setPlaying] = useState(false);
-  const [error, setError] = useState(false);
-  const audioRef = useRef<HTMLAudioElement | null>(null);
-  // Stable handle: identifies *this* player in the global slot regardless
-  // of re-renders. Storing the release callback in a ref + comparing by
-  // identity avoids clearing the slot when someone else has since claimed it.
-  const releaseRef = useRef<() => void>(() => {});
-  releaseRef.current = () => {
-    const el = audioRef.current;
-    if (el && !el.paused) el.pause();
-    setPlaying(false);
-  };
-
-  function clearSlotIfMine() {
-    if (activeVoiceRelease === releaseRef.current) activeVoiceRelease = null;
-  }
-
-  useEffect(() => {
-    return () => {
-      clearSlotIfMine();
-      const el = audioRef.current;
-      if (el) {
-        el.pause();
-        if (el.src) URL.revokeObjectURL(el.src);
-      }
-    };
-  }, []);
-
-  async function toggle() {
-    if (expired) return;
-    let el = audioRef.current;
-    if (!el) {
-      try {
-        const res = await fetch(`${API_BASE}/api/rooms/${roomId}/audio/${messageId}`);
-        if (!res.ok) throw new Error('fetch failed');
-        const blob = await res.blob();
-        const url = URL.createObjectURL(blob.type ? blob : new Blob([blob], { type: mime }));
-        el = new Audio(url);
-        el.onended = () => {
-          setPlaying(false);
-          clearSlotIfMine();
-        };
-        el.onerror = () => {
-          setError(true);
-          setPlaying(false);
-          clearSlotIfMine();
-        };
-        audioRef.current = el;
-      } catch {
-        setError(true);
-        return;
-      }
-    }
-    if (playing) {
-      el.pause();
-      setPlaying(false);
-      clearSlotIfMine();
-    } else {
-      // Stop whoever's currently playing (if anyone) before claiming the
-      // slot. Snapshot then null first so a re-entrant release() can't
-      // re-stop us mid-play.
-      const prev = activeVoiceRelease;
-      activeVoiceRelease = null;
-      if (prev) prev();
-      activeVoiceRelease = releaseRef.current;
-      try {
-        await el.play();
-        setPlaying(true);
-      } catch {
-        setError(true);
-        clearSlotIfMine();
-      }
-    }
-  }
-
-  const label = expired
-    ? 'voice clip expired'
-    : error
-      ? 'voice clip unavailable'
-      : `voice ${formatVoiceDuration(durationMs)}`;
-  return (
-    <button
-      type="button"
-      className={`voice-row${compact ? ' is-compact' : ''}${expired || error ? ' is-expired' : ''}${playing ? ' is-playing' : ''}`}
-      onClick={toggle}
-      disabled={expired || error}
-      aria-label={expired ? 'voice clip expired' : playing ? 'pause voice message' : 'play voice message'}
-    >
-      <Icon name={playing ? 'pause' : expired ? 'mic-off' : 'play'} size={compact ? 11 : 14} />
-      <span>{label}</span>
-    </button>
-  );
-}
-
-// ───────── Ambience overlay ─────────
-
-const TIME_TINTS: Record<AmbientTime, string> = {
-  dawn: 'rgba(255,180,120,0.18)',
-  day: 'rgba(255,255,200,0.04)',
-  dusk: 'rgba(180,120,200,0.20)',
-  night: 'rgba(20,20,60,0.42)',
-};
-
-function AmbienceOverlay({ ambient }: { ambient: Ambient }) {
-  const weatherStyle: React.CSSProperties = {
-    opacity: Math.max(0, Math.min(1, (ambient.intensity ?? 70) / 100)),
-  };
-  return (
-    <>
-      <div className="ambient-overlay" style={{ background: TIME_TINTS[ambient.time] }} />
-      {ambient.weather === 'rain' && <div className="ambient-rain" style={weatherStyle} />}
-      {ambient.weather === 'snow' && <div className="ambient-snow" style={weatherStyle} />}
-      {ambient.weather === 'fog' && <div className="ambient-fog" style={weatherStyle} />}
-    </>
-  );
-}
-
-// ───────── Sheets ─────────
-
-function PeopleSheet({
-  open,
-  onClose,
-  peers,
-  meId,
-  onEditMe,
-}: {
-  open: boolean;
-  onClose: () => void;
-  peers: User[];
-  meId: string | null;
-  onEditMe: () => void;
-}) {
-  return (
-    <Sheet open={open} onClose={onClose} title={`${peers.length} in the room`} tall>
-      <div>
-        {peers.map((p) => {
-          const isMe = p.id === meId;
-          return (
-            <div key={p.id} className="person-row">
-              <div className="person-row-head">
-                <PixelCharacter character={p.character} color={colorHex(p.color)} scale={3} />
-                <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
-                  <div className="name">{p.name}{isMe ? ' (you)' : ''}</div>
-                  <div className="role">{isMe ? 'this is you' : 'here now'}</div>
-                </div>
-                {isMe ? (
-                  <button type="button" className="person-edit" onClick={onEditMe}>
-                    edit
-                  </button>
-                ) : (
-                  <span className="live-dot" />
-                )}
-              </div>
-            </div>
-          );
-        })}
-      </div>
-    </Sheet>
-  );
-}
-
-function ChatLogSheet({
-  open,
-  onClose,
-  messages,
-  peersById,
-  roomId,
-}: {
-  open: boolean;
-  onClose: () => void;
-  messages: ChatMessage[];
-  peersById: Record<string, User>;
-  roomId: string;
-}) {
-  const ref = useRef<HTMLDivElement | null>(null);
-  useEffect(() => {
-    if (open && ref.current) ref.current.scrollTop = ref.current.scrollHeight;
-  }, [open, messages.length]);
-  return (
-    <Sheet open={open} onClose={onClose} title="log" tall>
-      <div ref={ref}>
-        {messages.map((m) => {
-          const peer = peersById[m.userId];
-          const c = peer ? colorHex(peer.color) : colorHex(m.color);
-          return (
-            <div key={m.id} className="chat-row">
-              <span className="time">{new Date(m.timestamp).toTimeString().slice(0, 5)}</span>
-              <span className="who" style={{ color: c }}>&lt;{m.name}&gt;</span>
-              {m.kind === 'voice' ? (
-                <span className="text">
-                  <VoicePlayer
-                    roomId={roomId}
-                    messageId={m.id}
-                    durationMs={m.audioDurationMs}
-                    mime={m.audioMime}
-                    expired={m.audioExpired}
-                  />
-                </span>
-              ) : (
-                <span className="text">{m.text}</span>
-              )}
-            </div>
-          );
-        })}
-        {messages.length === 0 && <div className="chat-empty">nothing said yet</div>}
-      </div>
-    </Sheet>
-  );
-}
-
-function MusicSheet({
-  open,
-  onClose,
-  player,
-  playback,
-  queue,
-  onRemoveFromQueue,
-  onClearQueue,
-}: {
-  open: boolean;
-  onClose: () => void;
-  player: UseSpotifyPlayerResult;
-  playback: PlaybackState;
-  queue: string[];
-  onRemoveFromQueue: (uri: string, index: number) => void;
-  onClearQueue: () => void;
-}) {
-  return (
-    <Sheet open={open} onClose={onClose} title="music" tall>
-      <ErrorBoundary
-        fallback={(err, reset) => (
-          <div>
-            <div className="h-display" style={{ fontSize: 18, marginBottom: 10 }}>
-              spotify panel crashed
-            </div>
-            <div className="body-text" style={{ marginBottom: 12 }}>{err.message}</div>
-            <button type="button" className="btn" onClick={reset}>
-              try again
-            </button>
-          </div>
-        )}
-      >
-        <SpotifyPlayer
-          player={player}
-          playback={playback}
-          queue={queue}
-          onRemoveFromQueue={onRemoveFromQueue}
-          onClearQueue={onClearQueue}
-        />
-      </ErrorBoundary>
-    </Sheet>
-  );
-}
-
-function AmbienceSheet({
-  open,
-  onClose,
-  ambient,
-  onChange,
-}: {
-  open: boolean;
-  onClose: () => void;
-  ambient: Ambient;
-  onChange: (next: Partial<Ambient>) => void;
-}) {
-  return (
-    <Sheet open={open} onClose={onClose} title="ambience">
-      <div className="body-text" style={{ marginBottom: 18 }}>
-        everyone in the room sees these changes immediately.
-      </div>
-      <Dial
-        label="room"
-        value={ambient.room}
-        options={['clearing', 'plaza']}
-        onChange={(v) => onChange({ room: v as AmbientRoom })}
-        cols2
-      />
-      <Dial
-        label="time"
-        value={ambient.time}
-        options={['dawn', 'day', 'dusk', 'night']}
-        onChange={(v) => onChange({ time: v as AmbientTime })}
-      />
-      <Dial
-        label="weather"
-        value={ambient.weather}
-        options={['clear', 'rain', 'snow', 'fog']}
-        onChange={(v) => onChange({ weather: v as AmbientWeather })}
-      />
-      {ambient.weather !== 'clear' && (
-        <div className="dial-group">
-          <div className="label">intensity · {ambient.intensity ?? 70}%</div>
-          <input
-            type="range"
-            className="intensity-slider"
-            min={0}
-            max={100}
-            step={1}
-            value={ambient.intensity ?? 70}
-            onChange={(e) => onChange({ intensity: parseInt(e.target.value, 10) })}
-          />
-        </div>
-      )}
-    </Sheet>
-  );
-}
-
-function Dial({
-  label,
-  value,
-  options,
-  onChange,
-  cols2 = false,
-}: {
-  label: string;
-  value: string;
-  options: string[];
-  onChange: (v: string) => void;
-  cols2?: boolean;
-}) {
-  return (
-    <div className="dial-group">
-      <div className="label">{label}</div>
-      <div className={`dial-options${cols2 ? ' cols-2' : ''}`}>
-        {options.map((o) => (
-          <button
-            key={o}
-            type="button"
-            className={`dial-btn${o === value ? ' selected' : ''}`}
-            onClick={() => onChange(o)}
-          >
-            {o}
-          </button>
-        ))}
-      </div>
     </div>
   );
 }

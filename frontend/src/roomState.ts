@@ -1,6 +1,6 @@
 // Per-tab membership marker. Lets RoomEntry remember that this tab has
-// already joined a room, so any redirect-out-and-back flow (Spotify auth,
-// in-room invite, etc.) returns the user straight to the room instead of
+// already joined a room, so any redirect-out-and-back flow (in-room
+// invite, OAuth, etc.) returns the user straight to the room instead of
 // the "drop in" screen.
 //
 // sessionStorage scope is per-tab, so a fresh tab opened to /r/<id> won't
