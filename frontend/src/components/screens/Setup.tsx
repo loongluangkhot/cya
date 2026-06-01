@@ -68,7 +68,7 @@ export function SetupScreen({ initial, onDone, onCancel, submitLabel }: SetupPro
         )}
       </div>
 
-      <div className="h-display">{initial ? 'edit your marker' : 'pick a marker'}</div>
+      <div className="h-display">{initial ? 'edit your mini-me' : 'pick your mini-me'}</div>
       <div className="body-text" style={{ marginTop: 4 }}>
         so the others know it's you. you can change this anytime.
       </div>
