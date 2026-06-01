@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import os
 import random
+import re
 import time
 import uuid
 from collections.abc import Mapping
@@ -11,9 +12,13 @@ from pathlib import Path
 from typing import Any
 
 import socketio
+from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, PlainTextResponse
+
+# Load .env from the backend dir before any os.getenv() runs.
+load_dotenv(Path(__file__).parent / ".env")
 
 from payloads import (
     AMBIENT_ROOMS,
@@ -79,7 +84,7 @@ ALLOWED_VOICE_MIMES: tuple[str, ...] = (
     "audio/mpeg",
 )
 # Grace window (seconds) after the last user disconnects before the room
-# is evicted. Long enough to absorb a Spotify OAuth round-trip and typical
+# is evicted. Long enough to absorb an OAuth round-trip and typical
 # mobile background-tab durations (phone call, screen lock, brief app
 # switch) so the room is still there when the user returns.
 # Override with CYA_ROOM_GRACE_S.
@@ -93,6 +98,28 @@ def _cors_origins() -> list[str]:
     if not raw:
         return ["*"]
     return [o.strip() for o in raw.split(",") if o.strip()]
+
+
+# Suggested "try this" links shown in the music sheet's paste bar. One
+# env var per slot — labels are product copy and stay in code; URLs come
+# entirely from env. Slots whose env var is unset are omitted.
+_YT_EXAMPLE_SLOTS: tuple[tuple[str, str], ...] = (
+    ("a song", "CYA_YT_SONG_URL"),
+    ("a stream", "CYA_YT_STREAM_URL"),
+    ("a playlist", "CYA_YT_PLAYLIST_URL"),
+)
+
+
+def _yt_examples() -> list[dict[str, str]]:
+    out: list[dict[str, str]] = []
+    for label, env_key in _YT_EXAMPLE_SLOTS:
+        url = (os.getenv(env_key, "") or "").strip()
+        if url:
+            out.append({"label": label, "url": url})
+    return out
+
+
+YT_EXAMPLES = _yt_examples()
 
 
 CORS_ORIGINS = _cors_origins()
@@ -276,6 +303,11 @@ fastapi_app.add_middleware(
 )
 
 
+@fastapi_app.get("/api/youtube/examples")
+async def youtube_examples_endpoint() -> dict[str, Any]:
+    return {"examples": YT_EXAMPLES}
+
+
 @fastapi_app.post("/api/rooms")
 async def create_room_endpoint() -> dict[str, str]:
     room = create_room()
@@ -429,11 +461,16 @@ async def on_update_memo(sid: str, payload: UpdateMemoPayload) -> None:
     await _update_user_field(sid, payload, "memo", max_len=MEMO_MAX, allow_empty=True)
 
 
+_YT_ID_RE = re.compile(r"^[A-Za-z0-9_-]{11}$")
+
+
 def _clean_uri(raw: Any) -> str | None:
+    """Validate a YouTube video id. Stored under the legacy `track_uri`
+    field name; semantically this is a YouTube 11-char id post-migration."""
     if raw is None:
         return None
-    s = str(raw)[:200].strip()
-    if not s.startswith("spotify:track:"):
+    s = str(raw).strip()
+    if not _YT_ID_RE.match(s):
         return None
     return s
 
@@ -750,7 +787,7 @@ async def on_disconnect(sid: str) -> None:
     del room.users[sid]
     await sio.emit("userLeft", {"id": sid}, room=room.id)
     # Schedule an eviction so empty rooms don't accumulate, but leave a
-    # grace window so a quick redirect-out-and-back (e.g. Spotify OAuth)
+    # grace window so a quick redirect-out-and-back (e.g. OAuth flow)
     # doesn't blow the room away before the user returns. A late join
     # cancels the task in on_join().
     if not room.users and room.id not in _pending_evictions:

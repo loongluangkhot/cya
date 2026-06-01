@@ -2,18 +2,23 @@ import { type FormEvent, type PointerEvent as ReactPointerEvent } from 'react';
 import Icon from '../Icon';
 import { useVoiceRecorder } from '../../hooks/useVoiceRecorder';
 import { formatVoiceDuration } from '../../hooks/useRoomState';
-import type { UseSpotifyPlayerResult } from '../../hooks/useSpotifyPlayer';
 import type { Ambient, PlaybackState } from '../../types';
 
 interface RoomDockProps {
   ambient: Ambient;
-  spotifyConnected: boolean;
   roomId: string;
   onSendVoice: (audio: ArrayBuffer, durationMs: number, mime: string) => void;
   playback: PlaybackState;
-  playbackLabel: string;
+  playbackMeta: string;
+  /** True once the local user has opted into music. */
+  musicEnabled: boolean;
   trackArt: string | undefined;
   trackTitle: string | undefined;
+  /** Player is in audio-only mode — hide the "watch in room" toggle. */
+  audioOnly: boolean;
+  /** Room video surface is currently visible (placement != off). */
+  roomVideoOn: boolean;
+  onToggleRoomVideo: () => void;
   draft: string;
   setDraft: (v: string) => void;
   onSend: (text: string) => void;
@@ -25,24 +30,6 @@ interface RoomDockProps {
   onPrev: () => void;
   onTogglePlay: () => void;
   onNext: () => void;
-}
-
-export function computeDockPlaybackLabel(
-  playback: PlaybackState,
-  player: UseSpotifyPlayerResult,
-): string {
-  // Users who haven't connected Spotify can't hear anything, so the chip
-  // is purely a CTA — don't leak what others in the room are playing.
-  if (!player.connected) return 'connect spotify';
-  if (!playback.trackUri) return 'tap to set a track';
-  // While the local SDK is still spinning up, the room's "playing" state
-  // hasn't translated into audio yet — say so. Once status resolves
-  // (ready / premium-required / error), trust the room state: users
-  // without Premium can never make the SDK report local playback, and
-  // we don't want the chip stuck on "starting…" for them.
-  const sdkSpinningUp = player.status === 'idle' || player.status === 'loading';
-  if (sdkSpinningUp && playback.isPlaying) return 'starting…';
-  return playback.isPlaying ? 'playing' : 'paused';
 }
 
 function ambientGlyph(a: Ambient): string {
@@ -57,12 +44,15 @@ function ambientGlyph(a: Ambient): string {
 
 export function RoomDock({
   ambient,
-  spotifyConnected,
   onSendVoice,
   playback,
-  playbackLabel,
+  playbackMeta,
+  musicEnabled,
   trackArt,
   trackTitle,
+  audioOnly,
+  roomVideoOn,
+  onToggleRoomVideo,
   draft,
   setDraft,
   onSend,
@@ -75,11 +65,10 @@ export function RoomDock({
   onTogglePlay,
   onNext,
 }: RoomDockProps) {
-  // Only surface the track to users who can actually hear it. Otherwise
-  // the chip degrades into a "connect spotify" CTA.
-  const showTrack = spotifyConnected && !!playback.trackUri;
+  const showTrack = musicEnabled && !!playback.trackUri;
   const recorder = useVoiceRecorder();
   const recording = recorder.status === 'recording';
+
   function submit(e: FormEvent) {
     e.preventDefault();
     onSend(draft);
@@ -106,12 +95,7 @@ export function RoomDock({
         <div className="dock-chip dock-chip-music">
           <button type="button" className="dock-chip-open" onClick={onOpenMusic}>
             {showTrack && trackArt ? (
-              <img
-                src={trackArt}
-                className="dock-chip-art"
-                alt=""
-                style={{ objectFit: 'cover' }}
-              />
+              <img src={trackArt} className="dock-chip-art" alt="" style={{ objectFit: 'cover' }} />
             ) : (
               <div
                 className="dock-chip-art"
@@ -122,17 +106,24 @@ export function RoomDock({
               <div className="dock-chip-title">
                 {showTrack ? (trackTitle || 'now playing') : 'music'}
               </div>
-              <div className="dock-chip-meta">{playbackLabel}</div>
+              <div className="dock-chip-meta">{playbackMeta}</div>
             </div>
           </button>
           {showTrack && (
             <div className="dock-chip-controls">
-              <button
-                type="button"
-                className="dock-chip-ctrl"
-                aria-label="previous"
-                onClick={onPrev}
-              >
+              {!audioOnly && (
+                <button
+                  type="button"
+                  className={`dock-chip-ctrl${roomVideoOn ? ' primary' : ''}`}
+                  aria-label={roomVideoOn ? 'hide video' : 'watch video'}
+                  aria-pressed={roomVideoOn}
+                  title={roomVideoOn ? 'hide video' : 'watch in room'}
+                  onClick={onToggleRoomVideo}
+                >
+                  <Icon name="screen" size={12} />
+                </button>
+              )}
+              <button type="button" className="dock-chip-ctrl" aria-label="restart" onClick={onPrev}>
                 <Icon name="prev" size={12} />
               </button>
               <button

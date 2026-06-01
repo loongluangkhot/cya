@@ -226,24 +226,22 @@ export function useRoomState({ onToast }: UseRoomStateOpts): UseRoomStateResult 
   }, []);
 
   // ────────────── Track metadata (oEmbed) ──────────────
-  // Per-uri title + art cache for the dock chip. Populated via Spotify's
-  // oEmbed endpoint (no auth required) so the chip renders even for users
-  // who haven't connected Spotify.
+  // Per-id title + art cache for the dock chip. Populated via YouTube's
+  // oEmbed endpoint (no auth required).
   useEffect(() => {
-    const uri = playback.trackUri;
-    if (!uri || trackMeta[uri]) return;
-    const id = uri.replace('spotify:track:', '');
-    if (!/^[A-Za-z0-9]{22}$/.test(id)) return;
+    const id = playback.trackUri;
+    if (!id || trackMeta[id]) return;
+    if (!/^[A-Za-z0-9_-]{11}$/.test(id)) return;
     let cancelled = false;
-    const target = `https://open.spotify.com/track/${id}`;
-    fetch(`https://open.spotify.com/oembed?url=${encodeURIComponent(target)}`)
+    const target = `https://www.youtube.com/watch?v=${id}`;
+    fetch(`https://www.youtube.com/oembed?url=${encodeURIComponent(target)}&format=json`)
       .then((r) => (r.ok ? r.json() : null))
       .then((data) => {
         if (cancelled || !data) return;
         const art = typeof data.thumbnail_url === 'string' ? data.thumbnail_url : '';
         const title = typeof data.title === 'string' ? data.title : '';
         if (!art && !title) return;
-        setTrackMeta((prev) => ({ ...prev, [uri]: { art, title } }));
+        setTrackMeta((prev) => ({ ...prev, [id]: { art, title } }));
       })
       .catch(() => {
         // ignore — chip falls back to defaults
