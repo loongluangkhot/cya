@@ -13,11 +13,14 @@ import { MemoEditorSheet } from './sheets/MemoEditorSheet';
 import { MindsSheet } from './sheets/MindsSheet';
 import { MusicSheet, type PlayerMode } from './sheets/MusicSheet';
 import { PeopleSheet } from './sheets/PeopleSheet';
+import { SettingsSheet } from './sheets/SettingsSheet';
+import { useMessageNotifications } from '../hooks/useMessageNotifications';
 import { useMovement } from '../hooks/useMovement';
 import { useRoomState } from '../hooks/useRoomState';
 import { useStoredState } from '../hooks/useStoredState';
 import { useToasts } from '../hooks/useToasts';
 import { useYoutubePlayer } from '../hooks/useYoutubePlayer';
+import { applyTheme, loadTheme, saveTheme, type ThemeId } from '../themes';
 import type { User } from '../types';
 
 interface RoomProps {
@@ -27,7 +30,15 @@ interface RoomProps {
   onMemoPersist: (memo: string) => void;
 }
 
-type SheetId = 'people' | 'chat' | 'music' | 'ambience' | 'minds' | 'memo-editor' | null;
+type SheetId =
+  | 'people'
+  | 'chat'
+  | 'music'
+  | 'ambience'
+  | 'minds'
+  | 'memo-editor'
+  | 'settings'
+  | null;
 
 const PLAYER_MODE_KEY = 'cya:yt:mode:v1';
 const ROOM_PLACEMENT_KEY = 'cya:yt:room:v1';
@@ -79,6 +90,12 @@ export default function Room({ roomId, onEditMe, onLeave, onMemoPersist }: RoomP
 
   const [sheet, setSheet] = useState<SheetId>(null);
   const [draft, setDraft] = useState('');
+  const [theme, setTheme] = useState<ThemeId>(() => loadTheme());
+  const { state: notifState, toggle: toggleNotif } = useMessageNotifications({
+    messages,
+    meId,
+    roomId,
+  });
 
   // Player stays mounted across sheet open/close — we move it between
   // surfaces (music sheet stage, in-room video, hidden audio host).
@@ -233,6 +250,7 @@ export default function Room({ roomId, onEditMe, onLeave, onMemoPersist }: RoomP
         roomId={roomId}
         peers={users}
         onOpenPeople={() => setSheet('people')}
+        onOpenSettings={() => setSheet('settings')}
         onLeave={onLeave}
       />
 
@@ -324,6 +342,18 @@ export default function Room({ roomId, onEditMe, onLeave, onMemoPersist }: RoomP
           changeMemo(memo);
           setSheet('minds');
         }}
+      />
+      <SettingsSheet
+        open={sheet === 'settings'}
+        onClose={() => setSheet(null)}
+        theme={theme}
+        onChangeTheme={(next) => {
+          setTheme(next);
+          applyTheme(next);
+          saveTheme(next);
+        }}
+        notifState={notifState}
+        onToggleNotif={toggleNotif}
       />
     </div>
   );

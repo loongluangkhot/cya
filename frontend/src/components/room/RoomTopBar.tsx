@@ -8,10 +8,11 @@ interface RoomTopBarProps {
   roomId: string;
   peers: User[];
   onOpenPeople: () => void;
+  onOpenSettings: () => void;
   onLeave: () => void;
 }
 
-export function RoomTopBar({ roomId, peers, onOpenPeople, onLeave }: RoomTopBarProps) {
+export function RoomTopBar({ roomId, peers, onOpenPeople, onOpenSettings, onLeave }: RoomTopBarProps) {
   const displayName = roomId.replace(/-/g, ' ');
   const host = typeof window !== 'undefined' ? window.location.host : '';
   const stackOffset = Math.min(2, peers.length - 1);
@@ -87,6 +88,14 @@ export function RoomTopBar({ roomId, peers, onOpenPeople, onLeave }: RoomTopBarP
             ))}
           </div>
           <span style={{ marginLeft: 4 }}>{peers.length}</span>
+        </button>
+        <button
+          type="button"
+          className="icon-btn"
+          aria-label="settings"
+          onClick={onOpenSettings}
+        >
+          <Icon name="gear" size={16} />
         </button>
         <button type="button" className="icon-btn" aria-label="leave" onClick={onLeave}>
           <Icon name="leave" size={16} />
