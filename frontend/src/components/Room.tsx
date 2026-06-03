@@ -254,7 +254,7 @@ export default function Room({ roomId, onEditMe, onLeave, onMemoPersist }: RoomP
         onLeave={onLeave}
       />
 
-      <IrcLog messages={messages.slice(-4)} peersById={peersById} roomId={roomId} />
+      <IrcLog messages={messages} peersById={peersById} roomId={roomId} />
 
       <RoomDock
         ambient={ambient}

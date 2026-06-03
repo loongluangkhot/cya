@@ -1106,18 +1106,34 @@ input, textarea, select { font-size: 16px; }
   left: var(--hud-pad);
   right: calc(var(--hud-pad) + 96px);
   bottom: 120px;
+  height: 25vh;
   pointer-events: none;
   z-index: 95;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  justify-content: flex-end;
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 64px);
+  mask-image: linear-gradient(to bottom, transparent 0, #000 64px);
 }
+.irc-log-scroll {
+  max-height: 100%;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  pointer-events: auto;
+  touch-action: pan-y;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.irc-log-scroll::-webkit-scrollbar { display: none; }
 .irc-row {
   font-family: var(--font-mono);
   font-size: 13px;
   color: var(--fg);
   line-height: 1.35;
-  background: var(--bg);
+  background: var(--surface);
   padding: 2px 8px;
   border: 1px solid var(--scene-line);
   align-self: flex-start;
