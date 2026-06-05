@@ -93,6 +93,11 @@ export function useMessageNotifications({
     if (messages.length === 0) return;
     const last = messages[messages.length - 1];
     if (!last || last.id === lastNotifiedIdRef.current) return;
+    // Advance the ref *before* the tab-visible / from-me early returns so
+    // a foreground or self-authored message still "consumes" the id. This
+    // also keeps reconnect-correct behaviour: on `state` re-fire, the
+    // last message id matches the ref → silent no-op; a genuinely missed
+    // message has a different id → fires once.
     lastNotifiedIdRef.current = last.id;
     if (last.userId === meId) return;
     if (!tabHidden()) return;

@@ -2684,6 +2684,18 @@ input, textarea, select { font-size: 16px; }
   border: var(--border-w) solid var(--scene-line);
   background: var(--surface-2);
   scroll-snap-align: end;
+  position: relative;
+}
+/* Status dot tucked into the top-right corner of the photo. Bigger
+   shadow so it stays legible against any image. */
+.mug-thumb-status {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  margin: 0;
+  width: 10px;
+  height: 10px;
+  border: 1.5px solid var(--surface);
 }
 .mug-thumb img {
   display: block;

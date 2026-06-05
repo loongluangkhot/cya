@@ -183,6 +183,11 @@ export function MugshotBoard({ roomId, users, takenAt, onClose }: MugshotBoardPr
                 alt={`${user.name}'s mugshot`}
                 draggable={false}
               />
+              <span
+                className={`status-dot mug-thumb-status${user.status === 'away' ? ' is-away' : ''}`}
+                aria-label={user.status === 'away' ? 'away' : 'online'}
+                title={user.status === 'away' ? 'away' : 'online'}
+              />
               <figcaption
                 className="mug-thumb-name"
                 style={{ color: colorHex(user.color) }}
