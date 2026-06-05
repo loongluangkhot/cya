@@ -109,6 +109,8 @@ export default function Room({ roomId, onEditMe, onLeave, onMemoPersist }: RoomP
     // state arrives. The hook short-circuits its subscription effect
     // until this becomes a non-null clientId.
     clientId: meId,
+    messages,
+    meId,
   });
 
   // Mugshot opt-in is local — opting out hides both the prompts *and* the

@@ -25,15 +25,19 @@ applyTheme(loadTheme());
   }
 })();
 
-// Service worker for Web Push. Production-only — in dev the SW would
-// cache Vite output and obscure real changes. Scope is explicit so it
-// isn't silently broken if the app ever moves to a subpath.
-if (import.meta.env.PROD && 'serviceWorker' in navigator) {
+// Service worker for Web Push. Registered in both dev and prod — our
+// SW doesn't cache anything (push handler only), so the usual "stale
+// asset" worry from caching SWs doesn't apply. Scope is explicit so
+// it isn't silently broken if the app ever moves to a subpath. If
+// registration fails (e.g. file 404, http-not-https in some setups),
+// the app falls back to the in-tab Notification API path.
+if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
     navigator.serviceWorker
       .register('/sw.js', { scope: '/' })
       .catch(() => {
-        // SW failures are non-fatal — the app works fine without push.
+        // Non-fatal — useMessageNotifications detects this and uses
+        // the in-tab fallback instead.
       });
   });
 }
