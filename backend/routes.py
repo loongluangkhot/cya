@@ -63,3 +63,20 @@ async def get_audio_endpoint(room_id: str, message_id: str) -> Response:
         # tab-revisit doesn't re-hit the server with a 5MB body.
         headers={"Cache-Control": "private, max-age=3600, immutable"},
     )
+
+
+@fastapi_app.get("/api/rooms/{room_id}/mugshot/{user_id}")
+async def get_mugshot_endpoint(room_id: str, user_id: str) -> Response:
+    room = rooms.get(room_id)
+    if room is None:
+        raise HTTPException(status_code=404, detail={"ok": False})
+    blob = room.mugshots.get(user_id)
+    if blob is None:
+        raise HTTPException(status_code=404, detail={"ok": False})
+    return Response(
+        content=blob.data,
+        media_type=blob.mime,
+        # Clients pin the URL to ?t={takenAt}; new shots get fresh URLs
+        # so caching the immutable bytes is safe.
+        headers={"Cache-Control": "private, max-age=3600, immutable"},
+    )

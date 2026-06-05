@@ -92,6 +92,11 @@ export interface StatePayload {
   ambient: Ambient;
   playback: PlaybackState;
   queue: string[];
+  mugshotIntervalS: number;
+  /** ms timestamp of the next scheduled prompt. */
+  nextMugshotAt: number;
+  /** Per-user `takenAt` ms timestamps. Image bytes are fetched via HTTP. */
+  mugshotsTakenAt: Record<string, number>;
 }
 
 export interface MovePayload {
@@ -126,6 +131,9 @@ export interface ServerToClientEvents {
   ambientChanged: (payload: Ambient) => void;
   playbackChanged: (payload: PlaybackState) => void;
   queueChanged: (payload: { queue: string[] }) => void;
+  mugshotPrompt: (payload: { nextAt: number }) => void;
+  mugshotSubmitted: (payload: { userId: string; takenAt: number }) => void;
+  mugshotIntervalChanged: (payload: { intervalS: number; nextAt: number }) => void;
 }
 
 export interface JoinAck {
@@ -167,6 +175,11 @@ export interface ClientToServerEvents {
   removeFromQueue: (payload: { uri: string; index?: number }) => void;
   advanceQueue: (payload: { afterTrackUri: string | null }) => void;
   clearQueue: () => void;
+  submitMugshot: (payload: {
+    image: ArrayBuffer | Uint8Array;
+    mime: string;
+  }) => void;
+  updateMugshotInterval: (payload: { intervalS: number }) => void;
 }
 
 export interface ColorMap {

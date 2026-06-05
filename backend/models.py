@@ -56,6 +56,17 @@ class Ambient:
     intensity: int = 70
 
 
+# Latest mugshot for a single user in a room. Replaced on each new
+# submission — we never keep history, the room only ever holds the most
+# recent shot per user (keyed by sid in Room.mugshots).
+@dataclass
+class MugshotBlob:
+    data: bytes
+    mime: str
+    # ms since epoch — also used as cache-buster on the client's <img> src.
+    taken_at: int
+
+
 @dataclass
 class Room:
     id: str
@@ -71,3 +82,10 @@ class Room:
     # via FIFO eviction (see audio._enforce_audio_cap).
     audio_blobs: dict[str, bytes] = field(default_factory=dict[str, bytes])
     audio_total_bytes: int = 0
+    # Mugshot state. mugshot_interval_s drives the per-room background
+    # task in mugshots.py; next_mugshot_at is the next prompt's ms
+    # timestamp so the client can render a countdown. mugshots is keyed
+    # by user sid; entries are dropped on disconnect.
+    mugshot_interval_s: int = 1800
+    next_mugshot_at: float = 0.0
+    mugshots: dict[str, MugshotBlob] = field(default_factory=dict[str, MugshotBlob])

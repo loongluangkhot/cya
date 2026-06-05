@@ -26,6 +26,12 @@ MSG_MAX = 200
 MEMO_MAX = 1000
 QUEUE_MAX = 200
 
+# Mugshot interval bounds — server clamps any client-supplied value into
+# this range so a malformed payload can't disable prompts or DoS the room
+# with sub-second cycles.
+MUGSHOT_INTERVAL_MIN_S = 60
+MUGSHOT_INTERVAL_MAX_S = 24 * 60 * 60
+
 
 # ───────────────── Env helpers ─────────────────
 
@@ -99,6 +105,18 @@ ALLOWED_VOICE_MIMES: tuple[str, ...] = (
 # mobile background-tab durations (phone call, screen lock, brief app
 # switch) so the room is still there when the user returns.
 ROOM_GRACE_S = _env_int("CYA_ROOM_GRACE_S", 30 * 60)
+
+# Mugshot tunables — default per-room interval and per-photo byte cap.
+MUGSHOT_INTERVAL_DEFAULT_S = _env_int("CYA_MUGSHOT_INTERVAL_S", 30 * 60)
+MUGSHOT_MAX_BYTES = _env_int("CYA_MUGSHOT_MAX_KB", 200) * 1024
+
+# Allow-list of mugshot MIME types. The client encodes to JPEG; we list
+# webp/png too so a future encoder swap doesn't need a server update.
+ALLOWED_MUGSHOT_MIMES: tuple[str, ...] = (
+    "image/jpeg",
+    "image/webp",
+    "image/png",
+)
 
 CORS_ORIGINS = _cors_origins()
 # socket.io accepts either '*' (single string) or a list of explicit origins.

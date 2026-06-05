@@ -21,7 +21,6 @@ export function MusicScreen(props: MusicScreenProps) {
     onAddManyToQueue,
     onRemoveFromQueue,
     onClearQueue,
-    onDisable,
     onExpandPlaylist,
   } = props;
   const trackId = playback.trackUri;
@@ -82,12 +81,6 @@ export function MusicScreen(props: MusicScreenProps) {
           ))}
         </div>
       )}
-
-      <div className="music-footer">
-        <button type="button" className="music-footer-link" onClick={onDisable}>
-          turn off music
-        </button>
-      </div>
     </div>
   );
 }

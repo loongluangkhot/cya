@@ -17,17 +17,22 @@ from typing import Any
 from app import sio
 from audio import enforce_audio_cap, trim_history
 from config import (
+    ALLOWED_MUGSHOT_MIMES,
     ALLOWED_VOICE_MIMES,
     MAX_VOICE_BYTES,
     MAX_VOICE_DURATION_MS,
     MEMO_MAX,
     MSG_MAX,
+    MUGSHOT_INTERVAL_MAX_S,
+    MUGSHOT_INTERVAL_MIN_S,
+    MUGSHOT_MAX_BYTES,
     NAME_MAX,
     QUEUE_MAX,
     ROOM_HEIGHT,
     ROOM_WIDTH,
 )
-from models import ChatMessage, Room, User
+from models import ChatMessage, MugshotBlob, Room, User
+import mugshots
 from payloads import (
     AMBIENT_ROOMS,
     AMBIENT_TIMES,
@@ -41,10 +46,12 @@ from payloads import (
     PlaybackSnapshot,
     PlayCollectionPayload,
     RemoveFromQueuePayload,
+    SubmitMugshotPayload,
     UpdateAmbientPayload,
     UpdateCharacterPayload,
     UpdateColorPayload,
     UpdateMemoPayload,
+    UpdateMugshotIntervalPayload,
     UpdateNamePayload,
     UpdatePlaybackPayload,
 )
@@ -103,6 +110,12 @@ def _state_snapshot(room: Room, user: User) -> dict[str, Any]:
         "ambient": asdict(room.ambient),
         "playback": _playback_snapshot(room),
         "queue": list(room.queue),
+        "mugshotIntervalS": room.mugshot_interval_s,
+        "nextMugshotAt": room.next_mugshot_at,
+        # Only the takenAt timestamp is needed in state — the bytes are
+        # fetched lazily over HTTP at /api/rooms/{room}/mugshot/{user},
+        # cache-busted by the takenAt query param.
+        "mugshotsTakenAt": {uid: m.taken_at for uid, m in room.mugshots.items()},
     }
 
 
@@ -174,6 +187,11 @@ async def on_join(sid: str, payload: JoinPayload) -> dict[str, Any]:
 
     await sio.emit("state", _state_snapshot(room, user), to=sid)
     await sio.emit("userJoined", asdict(user), room=room.id, skip_sid=sid)
+    # First-join prompt — refresh = new sid = no existing mugshot = re-prompt,
+    # which is acceptable behaviour (we drop mugshots on disconnect to keep
+    # the board free of ghosts from departed users).
+    if sid not in room.mugshots:
+        await sio.emit("mugshotPrompt", {"nextAt": room.next_mugshot_at}, to=sid)
     return {"ok": True}
 
 
@@ -185,6 +203,9 @@ async def on_disconnect(sid: str) -> None:
     if sid not in room.users:
         return
     del room.users[sid]
+    # Drop the departed user's mugshot — sids aren't reused across
+    # reconnects, so keeping it would just orphan a photo on the board.
+    room.mugshots.pop(sid, None)
     await sio.emit("userLeft", {"id": sid}, room=room.id)
     # Schedule an eviction so empty rooms don't accumulate, but leave a
     # grace window so a quick redirect-out-and-back doesn't blow the room
@@ -474,3 +495,59 @@ async def on_voice_message(sid: str, payload: Mapping[str, Any]) -> None:
     if expired_ids:
         await sio.emit("audioExpired", {"ids": expired_ids}, room=room.id)
     await sio.emit("chatMessage", asdict(message), room=room.id)
+
+
+# ───────────────── Mugshots ─────────────────
+
+
+@sio.on("submitMugshot")
+async def on_submit_mugshot(sid: str, payload: SubmitMugshotPayload) -> None:
+    pair = await _authed_user(sid)
+    if pair is None:
+        return
+    room, _user = pair
+    image = payload.get("image")
+    if not isinstance(image, (bytes, bytearray)):
+        return
+    image_bytes = bytes(image)
+    if not image_bytes or len(image_bytes) > MUGSHOT_MAX_BYTES:
+        return
+    mime = safe_string(payload, "mime", max_len=64)
+    if mime not in ALLOWED_MUGSHOT_MIMES:
+        return
+    taken_at = int(time.time() * 1000)
+    room.mugshots[sid] = MugshotBlob(data=image_bytes, mime=mime, taken_at=taken_at)
+    await sio.emit(
+        "mugshotSubmitted",
+        {"userId": sid, "takenAt": taken_at},
+        room=room.id,
+    )
+
+
+@sio.on("updateMugshotInterval")
+async def on_update_mugshot_interval(
+    sid: str, payload: UpdateMugshotIntervalPayload
+) -> None:
+    room = await _current_room(sid)
+    if room is None:
+        return
+    new_s = safe_int(
+        payload,
+        "intervalS",
+        default=room.mugshot_interval_s,
+        lo=MUGSHOT_INTERVAL_MIN_S,
+        hi=MUGSHOT_INTERVAL_MAX_S,
+    )
+    if new_s == room.mugshot_interval_s:
+        return
+    room.mugshot_interval_s = new_s
+    # Re-anchor the next prompt relative to now so a shorter interval
+    # doesn't immediately fire (and a longer one doesn't make people wait
+    # past the old deadline).
+    room.next_mugshot_at = time.time() * 1000 + new_s * 1000
+    mugshots.restart(room.id)
+    await sio.emit(
+        "mugshotIntervalChanged",
+        {"intervalS": new_s, "nextAt": room.next_mugshot_at},
+        room=room.id,
+    )

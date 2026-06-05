@@ -86,6 +86,15 @@ class ChatPayload(TypedDict, total=False):
     text: str
 
 
+class SubmitMugshotPayload(TypedDict, total=False):
+    image: bytes
+    mime: str
+
+
+class UpdateMugshotIntervalPayload(TypedDict, total=False):
+    intervalS: int
+
+
 # Outgoing wire shape — emitted in `state` and `playbackChanged`.
 # @sync: frontend/src/types.ts:PlaybackState
 class PlaybackSnapshot(TypedDict):

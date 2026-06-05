@@ -43,6 +43,11 @@ export interface UseRoomStateResult {
   playback: PlaybackState;
   queue: string[];
   trackMeta: Record<string, { art: string; title: string }>;
+  mugshotIntervalS: number;
+  nextMugshotAt: number;
+  mugshotsTakenAt: Record<string, number>;
+  /** Fires when the server pushes a mugshotPrompt — for the capture UI to subscribe to. */
+  promptToken: number;
   sendMessage: (text: string) => void;
   sendVoice: (audio: ArrayBuffer, durationMs: number, mime: string) => void;
   updateMemo: (memo: string) => void;
@@ -58,6 +63,8 @@ export interface UseRoomStateResult {
   removeFromQueue: (uri: string, index: number) => void;
   advanceQueue: (afterTrackUri: string | null) => void;
   clearQueue: () => void;
+  submitMugshot: (image: ArrayBuffer, mime: string) => void;
+  updateMugshotInterval: (intervalS: number) => void;
 }
 
 const QUEUE_MAX = 200;
@@ -80,6 +87,13 @@ export function useRoomState({ onToast }: UseRoomStateOpts): UseRoomStateResult 
   const [trackMeta, setTrackMeta] = useState<
     Record<string, { art: string; title: string }>
   >({});
+  const [mugshotIntervalS, setMugshotIntervalS] = useState<number>(1800);
+  const [nextMugshotAt, setNextMugshotAt] = useState<number>(0);
+  const [mugshotsTakenAt, setMugshotsTakenAt] = useState<Record<string, number>>({});
+  // Monotonic counter bumped on every server-pushed prompt — components
+  // can useEffect on it to trigger the capture sheet without depending
+  // on the (stable) timestamp values.
+  const [promptToken, setPromptToken] = useState<number>(0);
 
   const meRef = useRef<string | null>(null);
   meRef.current = meId;
@@ -98,6 +112,9 @@ export function useRoomState({ onToast }: UseRoomStateOpts): UseRoomStateResult 
       ambient: Ambient;
       playback: PlaybackState;
       queue?: string[];
+      mugshotIntervalS?: number;
+      nextMugshotAt?: number;
+      mugshotsTakenAt?: Record<string, number>;
     }) {
       setMeId(payload.you.id);
       const normalized = payload.users.map((u) => ({
@@ -110,6 +127,13 @@ export function useRoomState({ onToast }: UseRoomStateOpts): UseRoomStateResult 
       if (payload.ambient) setAmbient(payload.ambient);
       if (payload.playback) setPlayback(payload.playback);
       if (Array.isArray(payload.queue)) setQueue(payload.queue);
+      if (typeof payload.mugshotIntervalS === 'number') {
+        setMugshotIntervalS(payload.mugshotIntervalS);
+      }
+      if (typeof payload.nextMugshotAt === 'number') {
+        setNextMugshotAt(payload.nextMugshotAt);
+      }
+      if (payload.mugshotsTakenAt) setMugshotsTakenAt(payload.mugshotsTakenAt);
     }
     function onUserMoved({ id, x, y }: { id: string; x: number; y: number }) {
       setUsers((prev) =>
@@ -196,29 +220,59 @@ export function useRoomState({ onToast }: UseRoomStateOpts): UseRoomStateResult 
     function onQueueChanged(payload: { queue: string[] }) {
       setQueue(payload.queue);
     }
+    function onMugshotPrompt(payload: { nextAt: number }) {
+      if (typeof payload.nextAt === 'number') setNextMugshotAt(payload.nextAt);
+      // Bump regardless of nextAt — every prompt should open the sheet.
+      setPromptToken((n) => n + 1);
+    }
+    function onMugshotSubmitted(payload: { userId: string; takenAt: number }) {
+      setMugshotsTakenAt((prev) => ({ ...prev, [payload.userId]: payload.takenAt }));
+    }
+    function onMugshotIntervalChanged(payload: { intervalS: number; nextAt: number }) {
+      setMugshotIntervalS(payload.intervalS);
+      setNextMugshotAt(payload.nextAt);
+    }
+    function onUserLeftDropMugshot({ id }: { id: string }) {
+      // Server drops the mugshot on disconnect; mirror that on the
+      // client so the board updates without waiting for a refetch.
+      setMugshotsTakenAt((prev) => {
+        if (!(id in prev)) return prev;
+        const next = { ...prev };
+        delete next[id];
+        return next;
+      });
+    }
 
     socket.on('state', onState as never);
     socket.on('queueChanged', onQueueChanged);
     socket.on('userJoined', handleUserJoined);
     socket.on('userLeft', handleUserLeft);
+    socket.on('userLeft', onUserLeftDropMugshot);
     socket.on('userMoved', onUserMoved);
     socket.on('userUpdated', onUserUpdated);
     socket.on('chatMessage', onChat);
     socket.on('audioExpired', onAudioExpired);
     socket.on('ambientChanged', onAmbientChanged);
     socket.on('playbackChanged', handlePlaybackChanged);
+    socket.on('mugshotPrompt', onMugshotPrompt);
+    socket.on('mugshotSubmitted', onMugshotSubmitted);
+    socket.on('mugshotIntervalChanged', onMugshotIntervalChanged);
 
     return () => {
       socket.off('state', onState as never);
       socket.off('queueChanged', onQueueChanged);
       socket.off('userJoined', handleUserJoined);
       socket.off('userLeft', handleUserLeft);
+      socket.off('userLeft', onUserLeftDropMugshot);
       socket.off('userMoved', onUserMoved);
       socket.off('userUpdated', onUserUpdated);
       socket.off('chatMessage', onChat);
       socket.off('audioExpired', onAudioExpired);
       socket.off('ambientChanged', onAmbientChanged);
       socket.off('playbackChanged', handlePlaybackChanged);
+      socket.off('mugshotPrompt', onMugshotPrompt);
+      socket.off('mugshotSubmitted', onMugshotSubmitted);
+      socket.off('mugshotIntervalChanged', onMugshotIntervalChanged);
     };
   }, []);
 
@@ -362,6 +416,17 @@ export function useRoomState({ onToast }: UseRoomStateOpts): UseRoomStateResult 
     setQueue([]);
     socket.emit('clearQueue');
   }
+  function submitMugshot(image: ArrayBuffer, mime: string) {
+    if (!image.byteLength) return;
+    socket.emit('submitMugshot', { image, mime });
+  }
+  function updateMugshotInterval(intervalS: number) {
+    if (!Number.isFinite(intervalS) || intervalS <= 0) return;
+    // Optimistic — server echoes back via mugshotIntervalChanged.
+    setMugshotIntervalS(intervalS);
+    setNextMugshotAt(Date.now() + intervalS * 1000);
+    socket.emit('updateMugshotInterval', { intervalS });
+  }
 
   return {
     meId,
@@ -373,6 +438,10 @@ export function useRoomState({ onToast }: UseRoomStateOpts): UseRoomStateResult 
     playback,
     queue,
     trackMeta,
+    mugshotIntervalS,
+    nextMugshotAt,
+    mugshotsTakenAt,
+    promptToken,
     sendMessage,
     sendVoice,
     updateMemo,
@@ -384,5 +453,7 @@ export function useRoomState({ onToast }: UseRoomStateOpts): UseRoomStateResult 
     removeFromQueue,
     advanceQueue,
     clearQueue,
+    submitMugshot,
+    updateMugshotInterval,
   };
 }
