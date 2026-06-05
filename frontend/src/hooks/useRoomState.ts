@@ -8,6 +8,7 @@ import type {
   ColorId,
   PlaybackState,
   User,
+  UserStatus,
 } from '../types';
 
 // Server room dimensions; we normalize to 0..100 percent for the iso scene.
@@ -102,6 +103,78 @@ export function useRoomState({ onToast }: UseRoomStateOpts): UseRoomStateResult 
   const lastToastedTrackRef = useRef<string | null>(null);
   const onToastRef = useRef(onToast);
   onToastRef.current = onToast;
+
+  // ────────────── Lossy-emit queue ──────────────
+  // socket.io's reconnect re-fires the `connect` handler and our `doJoin`
+  // re-emits join — but during the window between socket reconnect and
+  // join-ack, the server has no session for our sid and would silently
+  // drop any emit. Buffer the user-input emits whose loss is visible
+  // (chat / mugshot / voice) until join-ack lands, then flush in order.
+  // High-frequency / state-mirror emits (`move`, `updateAmbient`, queue
+  // ops) are intentionally not queued — the next tick replaces them.
+  const joinAckedRef = useRef(false);
+  type QueuedEmit =
+    | { event: 'chat'; payload: { text: string } }
+    | { event: 'voiceMessage'; payload: { audio: ArrayBuffer; durationMs: number; mime: string } }
+    | { event: 'submitMugshot'; payload: { image: ArrayBuffer; mime: string } };
+  const pendingEmitsRef = useRef<QueuedEmit[]>([]);
+
+  function dispatch(item: QueuedEmit) {
+    if (item.event === 'chat') socket.emit('chat', item.payload);
+    else if (item.event === 'voiceMessage') socket.emit('voiceMessage', item.payload);
+    else socket.emit('submitMugshot', item.payload);
+  }
+
+  function queueOrEmit(item: QueuedEmit) {
+    if (joinAckedRef.current && socket.connected) {
+      dispatch(item);
+      return;
+    }
+    pendingEmitsRef.current.push(item);
+  }
+
+  useEffect(() => {
+    function onJoinAck() {
+      joinAckedRef.current = true;
+      const queued = pendingEmitsRef.current.splice(0);
+      for (const item of queued) dispatch(item);
+    }
+    function onSocketDisconnect() {
+      joinAckedRef.current = false;
+    }
+    window.addEventListener('cya:join-ack', onJoinAck);
+    socket.on('disconnect', onSocketDisconnect);
+    return () => {
+      window.removeEventListener('cya:join-ack', onJoinAck);
+      socket.off('disconnect', onSocketDisconnect);
+    };
+  }, []);
+
+  // ────────────── Visibility broadcast ──────────────
+  // Drives server-side status aggregation. Fires once on mount with the
+  // current visibility (so a tab that loads while hidden is correctly
+  // away from the start), then on every change.
+  useEffect(() => {
+    if (typeof document === 'undefined') return;
+    function emitVisibility() {
+      const visible = document.visibilityState === 'visible';
+      if (socket.connected && joinAckedRef.current) {
+        socket.emit('clientVisibility', { visible });
+      }
+    }
+    emitVisibility();
+    document.addEventListener('visibilitychange', emitVisibility);
+    // Re-emit on join-ack so a reconnect immediately reports current
+    // visibility (the server may have just torn the sid's state down).
+    function onJoinAck() {
+      emitVisibility();
+    }
+    window.addEventListener('cya:join-ack', onJoinAck);
+    return () => {
+      document.removeEventListener('visibilitychange', emitVisibility);
+      window.removeEventListener('cya:join-ack', onJoinAck);
+    };
+  }, []);
 
   // ────────────── Socket wiring ──────────────
   useEffect(() => {
@@ -242,6 +315,11 @@ export function useRoomState({ onToast }: UseRoomStateOpts): UseRoomStateResult 
         return next;
       });
     }
+    function onUserStatusChanged({ id, status }: { id: string; status: UserStatus }) {
+      setUsers((prev) =>
+        prev.map((p) => (p.id === id ? { ...p, status } : p)),
+      );
+    }
 
     socket.on('state', onState as never);
     socket.on('queueChanged', onQueueChanged);
@@ -257,6 +335,7 @@ export function useRoomState({ onToast }: UseRoomStateOpts): UseRoomStateResult 
     socket.on('mugshotPrompt', onMugshotPrompt);
     socket.on('mugshotSubmitted', onMugshotSubmitted);
     socket.on('mugshotIntervalChanged', onMugshotIntervalChanged);
+    socket.on('userStatusChanged', onUserStatusChanged);
 
     return () => {
       socket.off('state', onState as never);
@@ -273,6 +352,7 @@ export function useRoomState({ onToast }: UseRoomStateOpts): UseRoomStateResult 
       socket.off('mugshotPrompt', onMugshotPrompt);
       socket.off('mugshotSubmitted', onMugshotSubmitted);
       socket.off('mugshotIntervalChanged', onMugshotIntervalChanged);
+      socket.off('userStatusChanged', onUserStatusChanged);
     };
   }, []);
 
@@ -346,11 +426,11 @@ export function useRoomState({ onToast }: UseRoomStateOpts): UseRoomStateResult 
   function sendMessage(text: string) {
     const t = text.trim();
     if (!t) return;
-    socket.emit('chat', { text: t });
+    queueOrEmit({ event: 'chat', payload: { text: t } });
   }
   function sendVoice(audio: ArrayBuffer, durationMs: number, mime: string) {
     if (!audio.byteLength || durationMs <= 0) return;
-    socket.emit('voiceMessage', { audio, durationMs, mime });
+    queueOrEmit({ event: 'voiceMessage', payload: { audio, durationMs, mime } });
   }
   function updateMemo(memo: string) {
     // Optimistic update of the local user's memo — server will echo it back
@@ -418,7 +498,7 @@ export function useRoomState({ onToast }: UseRoomStateOpts): UseRoomStateResult 
   }
   function submitMugshot(image: ArrayBuffer, mime: string) {
     if (!image.byteLength) return;
-    socket.emit('submitMugshot', { image, mime });
+    queueOrEmit({ event: 'submitMugshot', payload: { image, mime } });
   }
   function updateMugshotInterval(intervalS: number) {
     if (!Number.isFinite(intervalS) || intervalS <= 0) return;

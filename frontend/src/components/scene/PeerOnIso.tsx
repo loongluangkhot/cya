@@ -97,6 +97,11 @@ export function PeerOnIso({
         <div className="peer-shadow" />
         <PixelCharacter character={peer.character} color={colorHex(peer.color)} scale={3} />
         <div className={`peer-tag${isMe ? ' is-me' : ''}`}>
+          <span
+            className={`status-dot${peer.status === 'away' ? ' is-away' : ''}`}
+            aria-label={peer.status === 'away' ? 'away' : 'online'}
+            title={peer.status === 'away' ? 'away' : 'online'}
+          />
           {peer.name}
           {isMe ? '·you' : ''}
         </div>

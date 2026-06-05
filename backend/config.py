@@ -106,6 +106,13 @@ ALLOWED_VOICE_MIMES: tuple[str, ...] = (
 # switch) so the room is still there when the user returns.
 ROOM_GRACE_S = _env_int("CYA_ROOM_GRACE_S", 30 * 60)
 
+# Per-user grace window (seconds) after the last sid for a clientId
+# disconnects before we broadcast `userLeft` and pop the user. Browsers
+# freeze backgrounded tabs after ~5min on desktop and aggressively on
+# mobile, so 30min absorbs a phone-pocket multitasking session without
+# making peers see them flicker out.
+USER_GRACE_S = _env_int("CYA_USER_GRACE_S", 30 * 60)
+
 # Mugshot tunables — default per-room interval and per-photo byte cap.
 MUGSHOT_INTERVAL_DEFAULT_S = _env_int("CYA_MUGSHOT_INTERVAL_S", 30 * 60)
 MUGSHOT_MAX_BYTES = _env_int("CYA_MUGSHOT_MAX_KB", 200) * 1024

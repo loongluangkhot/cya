@@ -77,12 +77,17 @@ export default function RoomEntry() {
           character: cm.character,
           color: cm.color,
           memo: cm.memo,
+          clientId: cm.clientId,
         },
         (ack) => {
           if (!ack?.ok) {
             clearRoomJoined();
             setRoomCheck('not_found');
+            return;
           }
+          // Tell the lossy-emit queue in useRoomState that we're
+          // session-attached on the server and queued emits can flush.
+          window.dispatchEvent(new CustomEvent('cya:join-ack'));
         },
       );
     }

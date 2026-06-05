@@ -1,10 +1,11 @@
 """In-memory room registry plus the disconnect-grace eviction policy.
 
 A room is born from ``create_room`` (HTTP) and lives in ``rooms`` until
-either everyone leaves AND the ``ROOM_GRACE_S`` window elapses, or the
-process is restarted. The grace window absorbs OAuth redirects, brief
-phone-call interruptions, and tab refreshes so users can come back to
-their room.
+nobody can plausibly return: every user has either been fully cleaned
+up by the per-user grace (USER_GRACE_S) or has no remaining sids, and
+ROOM_GRACE_S then elapses on top. The two grace windows are stacked so
+a user who backgrounds their tab still finds the room when they come
+back later in the day.
 """
 
 from __future__ import annotations
@@ -32,13 +33,26 @@ async def _evict_room_later(room_id: str) -> None:
         return
     _pending_evictions.pop(room_id, None)
     room = rooms.get(room_id)
-    if room is not None and not room.users:
-        rooms.pop(room_id, None)
-        # Local import breaks the rooms ↔ mugshots cycle (mugshots needs
-        # the rooms dict; we only need its cancel hook here).
-        from mugshots import cancel as cancel_mugshot_loop
+    if room is None:
+        return
+    # Re-check: the room is evictable only if no live sids remain across
+    # all clientIds. Away users with active grace cleanups still count
+    # as "in the room" from a presence perspective, but their cleanup
+    # task will pop them well before we'd evict the room itself.
+    has_any_sid = any(sids for sids in room.client_to_sids.values())
+    if has_any_sid:
+        return
+    rooms.pop(room_id, None)
+    # Local import breaks the rooms ↔ mugshots cycle (mugshots needs
+    # the rooms dict; we only need its cancel hook here).
+    from mugshots import cancel as cancel_mugshot_loop
 
-        cancel_mugshot_loop(room_id)
+    cancel_mugshot_loop(room_id)
+    # Outstanding per-user cleanup tasks are now orphaned — their target
+    # room is gone, so cancel them to avoid a tiny pile of zombie tasks.
+    for task in list(room.pending_user_cleanups.values()):
+        task.cancel()
+    room.pending_user_cleanups.clear()
 
 
 def cancel_pending_eviction(room_id: str) -> None:

@@ -40,6 +40,8 @@ export interface Ambient {
 
 // @sync: backend/main.py:User
 export interface User {
+  /** Server-stable identifier (clientId from the join payload). Replaces
+   *  the old sid-keyed identity so reconnects don't churn user.id. */
   id: string;
   name: string;
   character: CharacterId;
@@ -49,7 +51,11 @@ export interface User {
   direction: Direction;
   /** "On My Mind" memo — markdown text the user carries between rooms. */
   memo: string;
+  /** Presence — "online" while any tab reports visible, "away" otherwise. */
+  status: UserStatus;
 }
+
+export type UserStatus = 'online' | 'away';
 
 export type ChatMessageKind = 'text' | 'voice';
 
@@ -126,6 +132,7 @@ export interface ServerToClientEvents {
   userLeft: (payload: { id: string }) => void;
   userMoved: (payload: MovePayload) => void;
   userUpdated: (payload: UserUpdatedPayload) => void;
+  userStatusChanged: (payload: { id: string; status: UserStatus }) => void;
   chatMessage: (msg: ChatMessage) => void;
   audioExpired: (payload: { ids: string[] }) => void;
   ambientChanged: (payload: Ambient) => void;
@@ -149,9 +156,11 @@ export interface ClientToServerEvents {
       character: CharacterId;
       color: ColorId;
       memo: string;
+      clientId: string;
     },
     ack?: (res: JoinAck) => void,
   ) => void;
+  clientVisibility: (payload: { visible: boolean }) => void;
   move: (payload: { x: number; y: number; direction: Direction }) => void;
   chat: (payload: { text: string }) => void;
   voiceMessage: (payload: {

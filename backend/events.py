@@ -8,6 +8,7 @@ broadcast the diff.
 
 from __future__ import annotations
 
+import asyncio
 import time
 import uuid
 from collections.abc import Mapping
@@ -30,6 +31,7 @@ from config import (
     QUEUE_MAX,
     ROOM_HEIGHT,
     ROOM_WIDTH,
+    USER_GRACE_S,
 )
 from models import ChatMessage, MugshotBlob, Room, User
 import mugshots
@@ -41,6 +43,7 @@ from payloads import (
     AddToQueuePayload,
     AdvanceQueuePayload,
     ChatPayload,
+    ClientVisibilityPayload,
     JoinPayload,
     MovePayload,
     PlaybackSnapshot,
@@ -68,25 +71,104 @@ from validation import clean_uri, clean_uri_list, safe_float, safe_int, safe_str
 # ───────────────── Lookup helpers ─────────────────
 
 
-async def _current_room(sid: str) -> Room | None:
+async def _session_room_cid(sid: str) -> tuple[Room, str] | None:
+    """Resolve (room, clientId) from a sid via its socket.io session.
+    Returns None if the sid isn't joined to a room."""
     session = await sio.get_session(sid)
-    room_id = session.get("roomId") if session else None
-    if not room_id:
+    if not session:
         return None
-    return rooms.get(room_id)
+    room = rooms.get(session.get("roomId"))
+    if room is None:
+        return None
+    cid = session.get("clientId")
+    if not cid:
+        return None
+    return room, cid
+
+
+async def _current_room(sid: str) -> Room | None:
+    pair = await _session_room_cid(sid)
+    return pair[0] if pair else None
 
 
 async def _authed_user(sid: str) -> tuple[Room, User] | None:
     """Resolve (room, user) for the caller in one step. Returns None if
-    the sid isn't joined to a room or somehow isn't in the user dict —
-    callers should bail in either case."""
-    room = await _current_room(sid)
-    if room is None:
+    the sid isn't joined to a room, has no clientId session yet, or the
+    matching user has already been evicted."""
+    pair = await _session_room_cid(sid)
+    if pair is None:
         return None
-    user = room.users.get(sid)
+    room, cid = pair
+    user = room.users.get(cid)
     if user is None:
         return None
     return room, user
+
+
+# ───────────────── Presence helpers ─────────────────
+
+
+def _aggregate_status(room: Room, cid: str) -> str:
+    """Online if any live sid for this clientId reports visible; away
+    otherwise (all sids hidden, or no live sids during the grace window).
+
+    Defaulting `sid_visible` to True for any unknown sid means a fresh
+    join is treated as online from the moment it arrives — we don't
+    wait for the first `clientVisibility` event. The next visibility
+    tick corrects it if the assumption is wrong.
+    """
+    sids = room.client_to_sids.get(cid)
+    if not sids:
+        return "away"
+    for sid in sids:
+        if room.sid_visible.get(sid, True):
+            return "online"
+    return "away"
+
+
+async def _broadcast_status_if_changed(room: Room, cid: str) -> None:
+    user = room.users.get(cid)
+    if user is None:
+        return
+    new_status = _aggregate_status(room, cid)
+    if new_status == user.status:
+        return
+    user.status = new_status
+    await sio.emit(
+        "userStatusChanged",
+        {"id": cid, "status": new_status},
+        room=room.id,
+    )
+
+
+async def _cleanup_user_later(room: Room, cid: str, seq: int) -> None:
+    """Fired USER_GRACE_S after the last sid for `cid` disconnects.
+    Re-validates `reconnect_seq` inside the room lock before mutating
+    — so a late reconnect's `cancel()` racing with our wakeup is a
+    benign no-op rather than a double-eviction or zombie user."""
+    try:
+        await asyncio.sleep(USER_GRACE_S)
+    except asyncio.CancelledError:
+        return
+    user: User | None
+    async with room.lock:
+        # The user reconnected during the sleep — bail.
+        if room.reconnect_seq.get(cid) != seq:
+            return
+        if room.client_to_sids.get(cid):
+            return
+        user = room.users.pop(cid, None)
+        room.client_to_sids.pop(cid, None)
+        room.reconnect_seq.pop(cid, None)
+        room.mugshots.pop(cid, None)
+        room.pending_user_cleanups.pop(cid, None)
+    if user is None:
+        return
+    # Emits + room-eviction scheduling happen outside the lock to keep
+    # critical section short.
+    await sio.emit("userLeft", {"id": cid}, room=room.id)
+    if not any(sids for sids in room.client_to_sids.values()):
+        schedule_eviction(room.id)
 
 
 # ───────────────── Wire snapshots ─────────────────
@@ -145,7 +227,7 @@ async def _update_user_field(
     if not safe and not allow_empty:
         return
     setattr(user, key, safe)
-    await sio.emit("userUpdated", {"id": sid, key: safe}, room=room.id)
+    await sio.emit("userUpdated", {"id": user.id, key: safe}, room=room.id)
 
 
 # ───────────────── Join / disconnect ─────────────────
@@ -161,9 +243,6 @@ async def on_join(sid: str, payload: JoinPayload) -> dict[str, Any]:
     # Reconnecting before the grace window expires keeps the room alive.
     cancel_pending_eviction(room.id)
 
-    await sio.save_session(sid, {"roomId": room.id})
-    await sio.enter_room(sid, room.id)
-
     safe_name = (
         safe_string(payload, "name", default="Guest", max_len=NAME_MAX, strip=True)
         or "Guest"
@@ -172,46 +251,122 @@ async def on_join(sid: str, payload: JoinPayload) -> dict[str, Any]:
     safe_color = safe_string(payload, "color", default="leaf", max_len=40)
     safe_memo = safe_string(payload, "memo", max_len=MEMO_MAX)
 
-    x, y = random_spawn()
-    user = User(
-        id=sid,
-        name=safe_name,
-        character=safe_char,
-        color=safe_color,
-        x=x,
-        y=y,
-        direction="right",
-        memo=safe_memo,
-    )
-    room.users[sid] = user
+    # ClientId is the stable cross-session identity. Old clients without
+    # it get a server-minted fallback per connection — they keep working
+    # but lose the reconnect/mugshot-persistence benefits.
+    raw_cid = safe_string(payload, "clientId", max_len=64, strip=True)
+    cid = raw_cid if raw_cid else f"legacy-{uuid.uuid4().hex[:16]}"
+
+    is_reconnect = False
+    user: User
+    async with room.lock:
+        await sio.save_session(sid, {"roomId": room.id, "clientId": cid})
+        await sio.enter_room(sid, room.id)
+
+        if cid in room.users:
+            # Reconnect — preserve User entry (and its mugshot), refresh
+            # editable identity fields from the latest payload (the user
+            # may have updated their name/avatar on another tab).
+            is_reconnect = True
+            user = room.users[cid]
+            user.name = safe_name
+            user.character = safe_char
+            user.color = safe_color
+            user.memo = safe_memo
+            # Cancel any pending grace cleanup; re-validation inside the
+            # task is the real authoritative check.
+            pending = room.pending_user_cleanups.pop(cid, None)
+            if pending is not None:
+                pending.cancel()
+        else:
+            x, y = random_spawn()
+            user = User(
+                id=cid,
+                name=safe_name,
+                character=safe_char,
+                color=safe_color,
+                x=x,
+                y=y,
+                direction="right",
+                memo=safe_memo,
+            )
+            room.users[cid] = user
+
+        room.client_to_sids.setdefault(cid, set()).add(sid)
+        # Default new sid to visible — "online on first join" without
+        # waiting for the first clientVisibility tick.
+        room.sid_visible[sid] = True
+        room.reconnect_seq[cid] = room.reconnect_seq.get(cid, 0) + 1
+
+    # Status flips outside the lock to keep the critical section tight.
+    await _broadcast_status_if_changed(room, cid)
 
     await sio.emit("state", _state_snapshot(room, user), to=sid)
-    await sio.emit("userJoined", asdict(user), room=room.id, skip_sid=sid)
-    # First-join prompt — refresh = new sid = no existing mugshot = re-prompt,
-    # which is acceptable behaviour (we drop mugshots on disconnect to keep
-    # the board free of ghosts from departed users).
-    if sid not in room.mugshots:
-        await sio.emit("mugshotPrompt", {"nextAt": room.next_mugshot_at}, to=sid)
+    if not is_reconnect:
+        # Only announce userJoined for truly new identities; a returning
+        # client's peers never saw them leave (they were just "away").
+        await sio.emit("userJoined", asdict(user), room=room.id, skip_sid=sid)
+        # First-time mugshot prompt only when there's no existing photo.
+        # Reconnects skip this — their previous mugshot is still on file.
+        if cid not in room.mugshots:
+            await sio.emit("mugshotPrompt", {"nextAt": room.next_mugshot_at}, to=sid)
     return {"ok": True}
 
 
 @sio.on("disconnect")
 async def on_disconnect(sid: str) -> None:
-    room = await _current_room(sid)
-    if room is None:
+    pair = await _session_room_cid(sid)
+    if pair is None:
         return
-    if sid not in room.users:
-        return
-    del room.users[sid]
-    # Drop the departed user's mugshot — sids aren't reused across
-    # reconnects, so keeping it would just orphan a photo on the board.
-    room.mugshots.pop(sid, None)
-    await sio.emit("userLeft", {"id": sid}, room=room.id)
-    # Schedule an eviction so empty rooms don't accumulate, but leave a
-    # grace window so a quick redirect-out-and-back doesn't blow the room
-    # away before the user returns. A late join cancels the task in on_join().
-    if not room.users:
+    room, cid = pair
+
+    last_sid_gone = False
+    async with room.lock:
+        sids = room.client_to_sids.get(cid)
+        if sids is not None:
+            sids.discard(sid)
+        room.sid_visible.pop(sid, None)
+        if not sids:
+            last_sid_gone = True
+            room.client_to_sids.pop(cid, None)
+            # Don't pop the user yet — schedule grace cleanup. Bump
+            # reconnect_seq so any in-flight cleanup we just cancelled
+            # would no-op even if its cancel() lost the race.
+            seq = room.reconnect_seq.get(cid, 0) + 1
+            room.reconnect_seq[cid] = seq
+            room.pending_user_cleanups[cid] = asyncio.create_task(
+                _cleanup_user_later(room, cid, seq)
+            )
+
+    # Status flip lives outside the lock.
+    await _broadcast_status_if_changed(room, cid)
+
+    if last_sid_gone and not any(
+        sids for sids in room.client_to_sids.values()
+    ):
+        # No one has any live sid in the room any more — schedule the
+        # room-eviction grace on top of the per-user grace. The two
+        # stack: per-user grace pops the user object, room grace then
+        # frees the room itself if nobody returned.
         schedule_eviction(room.id)
+
+
+@sio.on("clientVisibility")
+async def on_client_visibility(
+    sid: str, payload: ClientVisibilityPayload
+) -> None:
+    pair = await _session_room_cid(sid)
+    if pair is None:
+        return
+    room, cid = pair
+    visible = bool(payload.get("visible", False))
+    async with room.lock:
+        if sid not in room.sid_visible:
+            return
+        if room.sid_visible[sid] == visible:
+            return
+        room.sid_visible[sid] = visible
+    await _broadcast_status_if_changed(room, cid)
 
 
 # ───────────────── Movement ─────────────────
@@ -505,7 +660,7 @@ async def on_submit_mugshot(sid: str, payload: SubmitMugshotPayload) -> None:
     pair = await _authed_user(sid)
     if pair is None:
         return
-    room, _user = pair
+    room, user = pair
     image = payload.get("image")
     if not isinstance(image, (bytes, bytearray)):
         return
@@ -516,10 +671,10 @@ async def on_submit_mugshot(sid: str, payload: SubmitMugshotPayload) -> None:
     if mime not in ALLOWED_MUGSHOT_MIMES:
         return
     taken_at = int(time.time() * 1000)
-    room.mugshots[sid] = MugshotBlob(data=image_bytes, mime=mime, taken_at=taken_at)
+    room.mugshots[user.id] = MugshotBlob(data=image_bytes, mime=mime, taken_at=taken_at)
     await sio.emit(
         "mugshotSubmitted",
-        {"userId": sid, "takenAt": taken_at},
+        {"userId": user.id, "takenAt": taken_at},
         room=room.id,
     )
 

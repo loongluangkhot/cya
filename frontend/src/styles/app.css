@@ -795,7 +795,11 @@ input, textarea, select { font-size: 16px; }
   max-width: 110px;
   overflow: hidden;
   text-overflow: ellipsis;
-  text-align: center;
+  /* Flex centers the status dot against the cap-height of the mono text
+     (vertical-align: middle alone sits too high). */
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 .peer-tag.is-me {
   box-shadow: 0 0 0 1px var(--bg), 0 0 0 2px var(--fg);
@@ -1702,6 +1706,31 @@ input, textarea, select { font-size: 16px; }
   border-radius: 50%;
   background: #5fb04d;
   box-shadow: 0 0 6px rgba(95, 176, 77, 0.6);
+}
+
+/* Presence indicator next to peer names. Green = online (any tab visible),
+   orange = away (all tabs hidden or fully disconnected within grace). */
+.status-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #5fb04d;
+  box-shadow: 0 0 6px rgba(95, 176, 77, 0.55);
+  margin-right: 6px;
+  vertical-align: middle;
+}
+.status-dot.is-away {
+  background: #d98b27;
+  box-shadow: 0 0 6px rgba(217, 139, 39, 0.55);
+}
+/* Shrink the dot inside the iso-scene peer tag — the tag is 10px text
+   so the default 8px dot would dominate. */
+.peer-tag .status-dot {
+  width: 6px;
+  height: 6px;
+  margin-right: 4px;
+  box-shadow: none;
 }
 .person-edit {
   appearance: none;

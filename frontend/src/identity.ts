@@ -7,9 +7,21 @@ import type { Identity } from './components/Screens';
 
 export const ME_KEY = 'cya:identity:v2';
 
+function newClientId(): string {
+  // crypto.randomUUID is supported in all modern browsers; fall back to
+  // a hand-rolled v4-ish string only in ancient ones (matters for old
+  // mobile WebViews).
+  if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
+    return crypto.randomUUID();
+  }
+  return `cid-${Math.random().toString(36).slice(2)}-${Date.now().toString(36)}`;
+}
+
 /** Validate a parsed JSON value as an Identity. Used by App's
     `useStoredState` validator and internally by `loadIdentity`. Legacy
-    identities (pre-memo) get migrated with an empty memo. */
+    identities (pre-memo, pre-clientId) get migrated with sensible
+    defaults — a missing clientId is minted on the fly and the saved
+    record will pick up the new value on next save. */
 export function validateIdentity(parsed: unknown): Identity | null {
   if (
     parsed &&
@@ -18,9 +30,11 @@ export function validateIdentity(parsed: unknown): Identity | null {
     typeof (parsed as Identity).color === 'string' &&
     typeof (parsed as Identity).character === 'string'
   ) {
-    const memo =
-      typeof (parsed as Identity).memo === 'string' ? (parsed as Identity).memo : '';
-    return { ...(parsed as Identity), memo };
+    const p = parsed as Partial<Identity>;
+    const memo = typeof p.memo === 'string' ? p.memo : '';
+    const clientId =
+      typeof p.clientId === 'string' && p.clientId ? p.clientId : newClientId();
+    return { ...(parsed as Identity), memo, clientId };
   }
   return null;
 }

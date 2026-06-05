@@ -18,6 +18,11 @@ export interface Identity {
   character: CharacterId;
   /** "On My Mind" memo — markdown, carried between rooms. May be ''. */
   memo: string;
+  /** Stable per-browser id. Generated once on first load, persisted in
+   *  localStorage forever. Used as the server-side user identity so a
+   *  reconnect (refresh, background-tab freeze) is recognised as the
+   *  same user instead of a brand-new sid. */
+  clientId: string;
 }
 
 interface SetupProps {
@@ -37,8 +42,21 @@ export function SetupScreen({ initial, onDone, onCancel, submitLabel }: SetupPro
   function submit(e: FormEvent) {
     e.preventDefault();
     if (!canSave) return;
-    // Memo isn't editable from setup — preserve whatever the user already had.
-    onDone({ name: name.trim(), color, character, memo: initial?.memo ?? '' });
+    // Memo + clientId aren't editable from setup. Memo carries over;
+    // clientId is generated lazily here for fresh identities and is
+    // never rotated afterwards (server uses it as the stable user key).
+    const clientId =
+      initial?.clientId ||
+      (typeof crypto !== 'undefined' && 'randomUUID' in crypto
+        ? crypto.randomUUID()
+        : `cid-${Math.random().toString(36).slice(2)}-${Date.now().toString(36)}`);
+    onDone({
+      name: name.trim(),
+      color,
+      character,
+      memo: initial?.memo ?? '',
+      clientId,
+    });
   }
 
   return (
