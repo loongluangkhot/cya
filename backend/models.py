@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass, field
+from typing import Any
 
 
 # @sync: frontend/src/types.ts:User
@@ -108,6 +109,13 @@ class Room:
     mugshot_interval_s: int = 1800
     next_mugshot_at: float = 0.0
     mugshots: dict[str, MugshotBlob] = field(default_factory=dict[str, MugshotBlob])
+    # Web Push subscriptions keyed by clientId. Each value is the raw
+    # browser PushSubscription object as a dict (endpoint, keys: {p256dh,
+    # auth}). Dropped on grace cleanup, room eviction, or 410/404 from
+    # the push service.
+    push_subscriptions: dict[str, dict[str, Any]] = field(
+        default_factory=dict[str, dict[str, Any]]
+    )
     # Per-user grace cleanup tasks, keyed by clientId. On disconnect we
     # schedule one; on reconnect we cancel it (or it re-validates the
     # reconnect_seq inside the lock and no-ops). See events.py.

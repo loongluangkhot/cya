@@ -28,6 +28,7 @@ from config import (
     MUGSHOT_INTERVAL_MIN_S,
     MUGSHOT_MAX_BYTES,
     NAME_MAX,
+    PUSH_TEXT_MAX,
     QUEUE_MAX,
     ROOM_HEIGHT,
     ROOM_WIDTH,
@@ -35,6 +36,7 @@ from config import (
 )
 from models import ChatMessage, MugshotBlob, Room, User
 import mugshots
+import push
 from payloads import (
     AMBIENT_ROOMS,
     AMBIENT_TIMES,
@@ -162,6 +164,7 @@ async def _cleanup_user_later(room: Room, cid: str, seq: int) -> None:
         room.reconnect_seq.pop(cid, None)
         room.mugshots.pop(cid, None)
         room.pending_user_cleanups.pop(cid, None)
+        room.push_subscriptions.pop(cid, None)
     if user is None:
         return
     # Emits + room-eviction scheduling happen outside the lock to keep
@@ -610,6 +613,30 @@ async def on_chat(sid: str, payload: ChatPayload) -> None:
     room.messages.append(message)
     trim_history(room)
     await sio.emit("chatMessage", asdict(message), room=room.id)
+    # Background push to away peers. SW will route to in-app toast for
+    # any tab that's visible-on-this-room, so duplication is benign;
+    # filtering by `status == away` here just saves push traffic.
+    away_cids = [
+        u.id
+        for u in room.users.values()
+        if u.id != user.id
+        and u.status == "away"
+        and u.id in room.push_subscriptions
+    ]
+    if away_cids:
+        asyncio.create_task(
+            push.fan_out(
+                room,
+                {
+                    "kind": "message",
+                    "roomId": room.id,
+                    "fromName": user.name,
+                    "text": text[:PUSH_TEXT_MAX],
+                    "messageId": message.id,
+                },
+                target_cids=away_cids,
+            )
+        )
 
 
 @sio.on("voiceMessage")
@@ -650,6 +677,26 @@ async def on_voice_message(sid: str, payload: Mapping[str, Any]) -> None:
     if expired_ids:
         await sio.emit("audioExpired", {"ids": expired_ids}, room=room.id)
     await sio.emit("chatMessage", asdict(message), room=room.id)
+    away_cids = [
+        u.id
+        for u in room.users.values()
+        if u.id != user.id
+        and u.status == "away"
+        and u.id in room.push_subscriptions
+    ]
+    if away_cids:
+        asyncio.create_task(
+            push.fan_out(
+                room,
+                {
+                    "kind": "voice",
+                    "roomId": room.id,
+                    "fromName": user.name,
+                    "messageId": message.id,
+                },
+                target_cids=away_cids,
+            )
+        )
 
 
 # ───────────────── Mugshots ─────────────────

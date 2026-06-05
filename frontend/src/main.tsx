@@ -25,6 +25,19 @@ applyTheme(loadTheme());
   }
 })();
 
+// Service worker for Web Push. Production-only — in dev the SW would
+// cache Vite output and obscure real changes. Scope is explicit so it
+// isn't silently broken if the app ever moves to a subpath.
+if (import.meta.env.PROD && 'serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker
+      .register('/sw.js', { scope: '/' })
+      .catch(() => {
+        // SW failures are non-fatal — the app works fine without push.
+      });
+  });
+}
+
 const root = document.getElementById('root');
 if (!root) throw new Error('root element not found');
 

@@ -104,9 +104,11 @@ export default function Room({ roomId, onEditMe, onLeave, onMemoPersist }: RoomP
   const [draft, setDraft] = useState('');
   const [theme, setTheme] = useState<ThemeId>(() => loadTheme());
   const { state: notifState, toggle: toggleNotif } = useMessageNotifications({
-    messages,
-    meId,
     roomId,
+    // meId === User.id === clientId post-refactor; null until first
+    // state arrives. The hook short-circuits its subscription effect
+    // until this becomes a non-null clientId.
+    clientId: meId,
   });
 
   // Mugshot opt-in is local — opting out hides both the prompts *and* the

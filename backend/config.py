@@ -113,6 +113,22 @@ ROOM_GRACE_S = _env_int("CYA_ROOM_GRACE_S", 30 * 60)
 # making peers see them flicker out.
 USER_GRACE_S = _env_int("CYA_USER_GRACE_S", 30 * 60)
 
+# Web Push (VAPID) — generate keys with:
+#   python -c "from py_vapid import Vapid01; v = Vapid01(); v.generate_keys(); \
+#       print('PRIV:', v.private_key_pem.decode()); print('PUB:', v.public_key_b64)"
+# Without all three set, push fan-out is disabled (the rest of the app
+# still works fine; users just don't get background notifications).
+VAPID_PRIVATE_KEY = os.getenv("CYA_VAPID_PRIVATE_KEY", "").strip()
+VAPID_PUBLIC_KEY = os.getenv("CYA_VAPID_PUBLIC_KEY", "").strip()
+# Push services (Mozilla autopush especially) reject claims without a
+# valid `sub`. mailto: URI or an HTTPS URL pointing at your contact page.
+VAPID_CONTACT = os.getenv("CYA_VAPID_CONTACT", "mailto:admin@cya.local").strip()
+PUSH_ENABLED: bool = bool(VAPID_PRIVATE_KEY and VAPID_PUBLIC_KEY)
+
+# Body text inside a push payload is capped to keep us under the
+# browser's ~3KB push-message budget (some FCM endpoints reject larger).
+PUSH_TEXT_MAX = 500
+
 # Mugshot tunables — default per-room interval and per-photo byte cap.
 MUGSHOT_INTERVAL_DEFAULT_S = _env_int("CYA_MUGSHOT_INTERVAL_S", 30 * 60)
 MUGSHOT_MAX_BYTES = _env_int("CYA_MUGSHOT_MAX_KB", 200) * 1024

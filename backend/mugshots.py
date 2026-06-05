@@ -37,6 +37,29 @@ async def _loop(room_id: str) -> None:
                 {"nextAt": room.next_mugshot_at},
                 room=room_id,
             )
+            # Push to away peers with subscriptions. The SW will route
+            # to in-app toast for any visible-on-room tab, so we always
+            # want to push and let the client decide how to surface.
+            import push  # local — keeps the mugshots ↔ events ↔ push
+            # import graph free of cycles at module-load time.
+
+            away_cids = [
+                u.id
+                for u in room.users.values()
+                if u.status == "away" and u.id in room.push_subscriptions
+            ]
+            if away_cids:
+                asyncio.create_task(
+                    push.fan_out(
+                        room,
+                        {
+                            "kind": "mugshot",
+                            "roomId": room.id,
+                            "nextAt": room.next_mugshot_at,
+                        },
+                        target_cids=away_cids,
+                    )
+                )
     except asyncio.CancelledError:
         return
     finally:

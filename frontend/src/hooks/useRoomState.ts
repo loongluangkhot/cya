@@ -176,6 +176,36 @@ export function useRoomState({ onToast }: UseRoomStateOpts): UseRoomStateResult 
     };
   }, []);
 
+  // ────────────── Service-worker → toast bridge ──────────────
+  // The SW receives every Web Push and routes: if a tab is visible on
+  // the room URL it postMessage's the payload here instead of firing
+  // an OS notification. We translate that into an in-app toast so
+  // foreground users see the same content without the OS chrome.
+  useEffect(() => {
+    if (typeof navigator === 'undefined' || !('serviceWorker' in navigator)) return;
+    function onMessage(e: MessageEvent) {
+      const data = e.data;
+      if (!data || data.source !== 'cya-sw' || data.kind !== 'push') return;
+      const payload = data.payload as
+        | { kind: string; fromName?: string; text?: string }
+        | undefined;
+      if (!payload) return;
+      if (payload.kind === 'message' && payload.fromName) {
+        onToastRef.current(`${payload.fromName}: ${payload.text || ''}`);
+      } else if (payload.kind === 'voice' && payload.fromName) {
+        onToastRef.current(`${payload.fromName}: 🎤 voice message`);
+      } else if (payload.kind === 'mugshot') {
+        // Mugshot prompt already toasts via useMugshotPrompt — skip
+        // here to avoid double-toasting when both the socket event
+        // and the push arrive at a visible tab.
+      }
+    }
+    navigator.serviceWorker.addEventListener('message', onMessage);
+    return () => {
+      navigator.serviceWorker.removeEventListener('message', onMessage);
+    };
+  }, []);
+
   // ────────────── Socket wiring ──────────────
   useEffect(() => {
     function onState(payload: {
