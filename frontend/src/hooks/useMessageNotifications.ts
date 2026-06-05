@@ -9,7 +9,15 @@ import { useStoredState } from './useStoredState';
 
 const NOTIF_PREF_KEY = 'cya:notif:v1';
 
-export type NotifState = 'off' | 'on' | 'denied' | 'unsupported';
+export type NotifState =
+  | 'off'
+  | 'on'
+  | 'denied'
+  | 'unsupported'
+  /** iOS Safari in a regular tab — push works only when the user
+   *  installs the site to their home screen. The UI surfaces an
+   *  install hint instead of the generic "unsupported" message. */
+  | 'needs-install';
 
 interface UseMessageNotificationsOpts {
   roomId: string;
@@ -25,6 +33,25 @@ function notificationApiSupported(): boolean {
 
 function isFullySupported(): boolean {
   return notificationApiSupported() && pushSupported();
+}
+
+/** Detect iOS Safari (or any WebKit shell on iOS — Chrome iOS shares
+ *  the same limitation) running in a regular tab, not as a home-screen
+ *  PWA. iOS only exposes PushManager for installed PWAs, so the user
+ *  needs to "add to home screen" to enable notifications. */
+function isIosTabNeedsInstall(): boolean {
+  if (typeof window === 'undefined' || typeof navigator === 'undefined') {
+    return false;
+  }
+  const ua = navigator.userAgent;
+  const isIos = /iPad|iPhone|iPod/.test(ua);
+  if (!isIos) return false;
+  // iOS uses the legacy `navigator.standalone === true` flag when
+  // launched from the home screen; modern browsers also expose
+  // `display-mode: standalone` via matchMedia.
+  const navStandalone = (navigator as { standalone?: boolean }).standalone === true;
+  const mediaStandalone = window.matchMedia?.('(display-mode: standalone)').matches === true;
+  return !navStandalone && !mediaStandalone;
 }
 
 /** Permission + push-subscription manager.
@@ -132,7 +159,9 @@ export function useMessageNotifications({
   }, [enabledPref, setEnabledPref]);
 
   const state: NotifState = !isFullySupported()
-    ? 'unsupported'
+    ? isIosTabNeedsInstall()
+      ? 'needs-install'
+      : 'unsupported'
     : permission === 'denied'
       ? 'denied'
       : enabledPref && permission === 'granted'
