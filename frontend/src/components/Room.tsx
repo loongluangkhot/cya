@@ -235,58 +235,75 @@ export default function Room({ roomId, onEditMe, onLeave, onMemoPersist }: RoomP
 
   return (
     <div className="room-root">
-      <IsoScene
-        peers={users}
-        meId={meId}
-        bubbles={bubbles}
-        room={ambient.room}
-        onOpenMemo={() => setSheet('minds')}
-        onWriteMemo={() => setSheet('memo-editor')}
-      />
-      <AmbienceOverlay ambient={ambient} />
-
-      {/* Hidden host keeps audio alive when no visible surface is mounted. */}
-      <div ref={audioHostRef} className="yt-audio-host" aria-hidden="true" />
-
-      {showRoomVideo && playback.trackUri && (
-        <RoomVideo
-          trackId={playback.trackUri}
-          placement={roomPlacement === 'wall' ? 'wall' : 'corner'}
-          audioOnly={playerMode === 'audio'}
-          isPlaying={playback.isPlaying}
-          hasQueue={queue.length > 0}
-          stageRef={roomStageRef}
-          onOpen={() => setSheet('music')}
-          onTogglePlay={dockTogglePlay}
-          onNext={dockNext}
-          onClose={() => setRoomPlacement('off')}
+      {/* The scene takes the leftover space above the dock. The dock
+          is a flex sibling — its natural height pushes the scene up,
+          so HUD elements positioned `bottom: N` inside .room-scene
+          stay anchored above the dock without any JS-driven sizing. */}
+      <div className="room-scene">
+        <IsoScene
+          peers={users}
+          meId={meId}
+          bubbles={bubbles}
+          room={ambient.room}
+          onOpenMemo={() => setSheet('minds')}
+          onWriteMemo={() => setSheet('memo-editor')}
         />
-      )}
+        <AmbienceOverlay ambient={ambient} />
 
-      <DPad
-        onNudge={(dx, dy) => {
-          setWandering(false);
-          nudge(dx, dy);
-        }}
-      />
-      <button
-        type="button"
-        className={`wander-btn${wandering ? ' active' : ''}`}
-        onClick={() => setWandering((w) => !w)}
-        aria-pressed={wandering}
-      >
-        wander
-      </button>
+        {/* Hidden host keeps audio alive when no visible surface is mounted. */}
+        <div ref={audioHostRef} className="yt-audio-host" aria-hidden="true" />
 
-      <RoomTopBar
-        roomId={roomId}
-        peers={users}
-        onOpenPeople={() => setSheet('people')}
-        onOpenSettings={() => setSheet('settings')}
-        onLeave={onLeave}
-      />
+        {showRoomVideo && playback.trackUri && (
+          <RoomVideo
+            trackId={playback.trackUri}
+            placement={roomPlacement === 'wall' ? 'wall' : 'corner'}
+            audioOnly={playerMode === 'audio'}
+            isPlaying={playback.isPlaying}
+            hasQueue={queue.length > 0}
+            stageRef={roomStageRef}
+            onOpen={() => setSheet('music')}
+            onTogglePlay={dockTogglePlay}
+            onNext={dockNext}
+            onClose={() => setRoomPlacement('off')}
+          />
+        )}
 
-      <IrcLog messages={messages} peersById={peersById} roomId={roomId} />
+        <div className="dpad-stack">
+          <DPad
+            onNudge={(dx, dy) => {
+              setWandering(false);
+              nudge(dx, dy);
+            }}
+          />
+          <button
+            type="button"
+            className={`wander-btn${wandering ? ' active' : ''}`}
+            onClick={() => setWandering((w) => !w)}
+            aria-pressed={wandering}
+          >
+            wander
+          </button>
+        </div>
+
+        <RoomTopBar
+          roomId={roomId}
+          peers={users}
+          onOpenPeople={() => setSheet('people')}
+          onOpenSettings={() => setSheet('settings')}
+          onLeave={onLeave}
+        />
+
+        <IrcLog messages={messages} peersById={peersById} roomId={roomId} />
+
+        {mugshotOptIn && mugshotBoardOn && (
+          <MugshotBoard
+            roomId={roomId}
+            users={users}
+            takenAt={mugshotsTakenAt}
+            onClose={() => setMugshotBoardOn(false)}
+          />
+        )}
+      </div>
 
       <RoomDock
         ambient={ambient}
@@ -309,15 +326,6 @@ export default function Room({ roomId, onEditMe, onLeave, onMemoPersist }: RoomP
         mugshotNextAt={nextMugshotAt}
         mugshotIntervalS={mugshotIntervalS}
       />
-
-      {mugshotOptIn && mugshotBoardOn && (
-        <MugshotBoard
-          roomId={roomId}
-          users={users}
-          takenAt={mugshotsTakenAt}
-          onClose={() => setMugshotBoardOn(false)}
-        />
-      )}
 
       <Toasts items={toasts} />
 

@@ -595,6 +595,18 @@ input, textarea, select { font-size: 16px; }
   inset: 0;
   overflow: hidden;
   background: var(--bg);
+  /* Flex column: the dock is a sibling that takes its natural height,
+     so .room-scene below fills exactly the leftover space. HUD
+     elements positioned `bottom: N` inside .room-scene then anchor
+     against the dock's top edge — no JS-driven --dock-h needed. */
+  display: flex;
+  flex-direction: column;
+}
+.room-scene {
+  position: relative;
+  flex: 1 1 0;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .room-top {
@@ -1109,10 +1121,14 @@ input, textarea, select { font-size: 16px; }
   position: absolute;
   left: var(--hud-pad);
   right: calc(var(--hud-pad) + 96px);
-  bottom: 120px;
+  /* Sits flush against the dock's top edge so the dock's ::before
+     fade can soften the last few rows of chat into the dock —
+     visually, the chat trails off into the dock instead of hovering
+     above it with dead space. */
+  bottom: 16px;
   height: 25vh;
   pointer-events: none;
-  z-index: 95;
+  z-index: 120;
   display: flex;
   flex-direction: column;
   justify-content: flex-end;
@@ -1164,12 +1180,25 @@ input, textarea, select { font-size: 16px; }
   -webkit-tap-highlight-color: transparent;
 }
 
-/* D-pad cross */
-.dpad {
+/* Anchored container for the d-pad + wander button. Stacking them in
+   one flex column means the gap between them is the column's `gap`
+   rather than two independent `bottom` magic numbers, and moving the
+   whole control group is a single edit. */
+.dpad-stack {
   position: absolute;
   right: var(--hud-pad);
-  bottom: 168px;
-  z-index: 95;
+  bottom: 16px;
+  z-index: 120;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+
+/* D-pad cross — `position: relative` is the positioning context for
+   the absolutely-positioned .dpad-btn children. */
+.dpad {
+  position: relative;
   width: calc(var(--dpad-cell) * 3);
   height: calc(var(--dpad-cell) * 3);
   user-select: none;
@@ -1207,12 +1236,8 @@ input, textarea, select { font-size: 16px; }
 .dpad-right { left: calc(var(--dpad-cell) * 2);       top: var(--dpad-cell); }
 .dpad-down  { left: var(--dpad-cell);                 top: calc(var(--dpad-cell) * 2); }
 
-/* Wander toggle — sits just below the D-pad. */
+/* Wander toggle — sits just below the D-pad as a flex sibling. */
 .wander-btn {
-  position: absolute;
-  right: var(--hud-pad);
-  bottom: 120px;
-  z-index: 95;
   appearance: none;
   cursor: pointer;
   min-width: 84px;
@@ -1238,15 +1263,30 @@ input, textarea, select { font-size: 16px; }
   50%      { box-shadow: 0 2px 0 rgba(0, 0, 0, 0.25), inset 0 0 0 2px var(--fg); }
 }
 
-/* Bottom dock */
+/* Bottom dock — a flex sibling of .room-scene under .room-root, so
+   its natural height pushes the scene up automatically. */
 .dock {
+  flex: 0 0 auto;
+  position: relative; /* anchors the ::before fade overlay */
+  z-index: 100;
+  padding: 0 var(--hud-pad) max(env(safe-area-inset-bottom, 10px), 10px);
+  background: var(--bg);
+}
+/* Soft fade from the iso scene into the dock. Lives ABOVE the dock
+   (overhanging into .room-scene) so it overlays scene content with a
+   transparent-to-solid gradient — re-creating the "scene trails off
+   into the dock" effect that the dock's own background gradient used
+   to provide when the dock overlapped the scene via absolute
+   positioning. */
+.dock::before {
+  content: '';
   position: absolute;
   left: 0;
   right: 0;
-  bottom: 0;
-  z-index: 100;
-  padding: 20px var(--hud-pad) max(env(safe-area-inset-bottom, 10px), 10px);
-  background: linear-gradient(0deg, var(--bg) 0%, var(--bg) 60%, transparent 100%);
+  bottom: 100%;
+  height: 36px;
+  background: linear-gradient(0deg, var(--bg) 0%, transparent 100%);
+  pointer-events: none;
 }
 .dock-chips {
   display: flex;
