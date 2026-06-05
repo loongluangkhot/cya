@@ -595,6 +595,18 @@ input, textarea, select { font-size: 16px; }
   inset: 0;
   overflow: hidden;
   background: var(--bg);
+  /* Flex column: the dock is a sibling that takes its natural height,
+     so .room-scene below fills exactly the leftover space. HUD
+     elements positioned `bottom: N` inside .room-scene then anchor
+     against the dock's top edge — no JS-driven --dock-h needed. */
+  display: flex;
+  flex-direction: column;
+}
+.room-scene {
+  position: relative;
+  flex: 1 1 0;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .room-top {
@@ -795,7 +807,11 @@ input, textarea, select { font-size: 16px; }
   max-width: 110px;
   overflow: hidden;
   text-overflow: ellipsis;
-  text-align: center;
+  /* Flex centers the status dot against the cap-height of the mono text
+     (vertical-align: middle alone sits too high). */
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 .peer-tag.is-me {
   box-shadow: 0 0 0 1px var(--bg), 0 0 0 2px var(--fg);
@@ -1105,19 +1121,39 @@ input, textarea, select { font-size: 16px; }
   position: absolute;
   left: var(--hud-pad);
   right: calc(var(--hud-pad) + 96px);
-  bottom: 120px;
+  /* Sits flush against the dock's top edge so the dock's ::before
+     fade can soften the last few rows of chat into the dock —
+     visually, the chat trails off into the dock instead of hovering
+     above it with dead space. */
+  bottom: 16px;
+  height: 25vh;
   pointer-events: none;
-  z-index: 95;
+  z-index: 120;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 64px);
+  mask-image: linear-gradient(to bottom, transparent 0, #000 64px);
+}
+.irc-log-scroll {
+  max-height: 100%;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  pointer-events: auto;
+  touch-action: pan-y;
   display: flex;
   flex-direction: column;
   gap: 4px;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
 }
+.irc-log-scroll::-webkit-scrollbar { display: none; }
 .irc-row {
   font-family: var(--font-mono);
   font-size: 13px;
   color: var(--fg);
   line-height: 1.35;
-  background: var(--bg);
+  background: var(--surface);
   padding: 2px 8px;
   border: 1px solid var(--scene-line);
   align-self: flex-start;
@@ -1144,12 +1180,25 @@ input, textarea, select { font-size: 16px; }
   -webkit-tap-highlight-color: transparent;
 }
 
-/* D-pad cross */
-.dpad {
+/* Anchored container for the d-pad + wander button. Stacking them in
+   one flex column means the gap between them is the column's `gap`
+   rather than two independent `bottom` magic numbers, and moving the
+   whole control group is a single edit. */
+.dpad-stack {
   position: absolute;
   right: var(--hud-pad);
-  bottom: 168px;
-  z-index: 95;
+  bottom: 16px;
+  z-index: 120;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+
+/* D-pad cross — `position: relative` is the positioning context for
+   the absolutely-positioned .dpad-btn children. */
+.dpad {
+  position: relative;
   width: calc(var(--dpad-cell) * 3);
   height: calc(var(--dpad-cell) * 3);
   user-select: none;
@@ -1187,12 +1236,8 @@ input, textarea, select { font-size: 16px; }
 .dpad-right { left: calc(var(--dpad-cell) * 2);       top: var(--dpad-cell); }
 .dpad-down  { left: var(--dpad-cell);                 top: calc(var(--dpad-cell) * 2); }
 
-/* Wander toggle — sits just below the D-pad. */
+/* Wander toggle — sits just below the D-pad as a flex sibling. */
 .wander-btn {
-  position: absolute;
-  right: var(--hud-pad);
-  bottom: 120px;
-  z-index: 95;
   appearance: none;
   cursor: pointer;
   min-width: 84px;
@@ -1218,20 +1263,104 @@ input, textarea, select { font-size: 16px; }
   50%      { box-shadow: 0 2px 0 rgba(0, 0, 0, 0.25), inset 0 0 0 2px var(--fg); }
 }
 
-/* Bottom dock */
+/* Bottom dock — a flex sibling of .room-scene under .room-root, so
+   its natural height pushes the scene up automatically. */
 .dock {
+  flex: 0 0 auto;
+  position: relative; /* anchors the ::before fade overlay */
+  z-index: 100;
+  padding: 0 var(--hud-pad) max(env(safe-area-inset-bottom, 10px), 10px);
+  background: var(--bg);
+}
+/* Soft fade from the iso scene into the dock. Lives ABOVE the dock
+   (overhanging into .room-scene) so it overlays scene content with a
+   transparent-to-solid gradient — re-creating the "scene trails off
+   into the dock" effect that the dock's own background gradient used
+   to provide when the dock overlapped the scene via absolute
+   positioning. */
+.dock::before {
+  content: '';
   position: absolute;
   left: 0;
   right: 0;
-  bottom: 0;
-  z-index: 100;
-  padding: 20px var(--hud-pad) max(env(safe-area-inset-bottom, 10px), 10px);
-  background: linear-gradient(0deg, var(--bg) 0%, var(--bg) 60%, transparent 100%);
+  bottom: 100%;
+  height: 36px;
+  background: linear-gradient(0deg, var(--bg) 0%, transparent 100%);
+  pointer-events: none;
 }
 .dock-chips {
   display: flex;
   gap: 8px;
   margin-bottom: 10px;
+}
+
+/* Peek-state row: single-glyph buttons. Each opens its matching sheet
+   for the full controls — the dock just hints at "this exists" + (for
+   stateful ones like ambience/mugshot) the current state. */
+.dock-glyphs {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.dock-glyph {
+  appearance: none;
+  cursor: pointer;
+  width: 38px;
+  height: 38px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  background: var(--surface);
+  border: var(--border-w) solid var(--fg);
+  color: var(--fg);
+  font-family: var(--font-display);
+  font-size: 16px;
+  line-height: 1;
+}
+.dock-glyph.is-active { background: var(--fg); color: var(--bg); }
+.dock-glyph.is-off { color: var(--muted); }
+.dock-glyph-char { display: block; font-size: 16px; line-height: 1; }
+
+/* Slim now-playing ticker — only renders while music plays. Keeps
+   play/pause inline since that's the most-common in-flight action;
+   everything else (next, queue, room placement, audio-only) lives in
+   the music sheet. */
+.dock-ticker {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 6px 4px 4px;
+  margin-bottom: 10px;
+  background: var(--surface);
+  border: var(--border-w) solid var(--fg);
+}
+.dock-ticker-art {
+  flex: 0 0 auto;
+  width: 22px;
+  height: 22px;
+  border: var(--border-w) solid var(--fg);
+  object-fit: cover;
+  background: linear-gradient(135deg, #2b2118 0%, #b54822 100%);
+}
+.dock-ticker-art-empty {
+  background: linear-gradient(135deg, #2b2118 0%, #b54822 100%);
+}
+.dock-ticker-title {
+  appearance: none;
+  flex: 1;
+  min-width: 0;
+  background: transparent;
+  border: 0;
+  padding: 0;
+  text-align: left;
+  color: var(--fg);
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .dock-chip {
   appearance: none;
@@ -1534,6 +1663,49 @@ input, textarea, select { font-size: 16px; }
   color: var(--fg);
   padding: 0;
 }
+.sheet-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+/* On/off toggle that sits next to the close button. Inverts bg/fg
+   when on, matching the dock glyph's active/inactive convention. */
+.sheet-toggle {
+  appearance: none;
+  cursor: pointer;
+  padding: 4px 10px;
+  min-height: 24px;
+  display: inline-flex;
+  align-items: center;
+  background: var(--surface);
+  border: var(--border-w) solid var(--fg);
+  color: var(--fg);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  line-height: 1;
+}
+.sheet-toggle.on { background: var(--fg); color: var(--bg); }
+/* Icon variant — used for secondary toggles like popup visibility.
+   Same bg/fg flip convention as the text on/off pill so the active
+   state reads the same across both kinds of toggle. */
+.sheet-icon-toggle {
+  appearance: none;
+  cursor: pointer;
+  width: 28px;
+  height: 24px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--surface);
+  border: var(--border-w) solid var(--fg);
+  color: var(--fg);
+}
+.sheet-icon-toggle.on { background: var(--fg); color: var(--bg); }
+.sheet-icon-toggle:disabled { opacity: 0.35; cursor: not-allowed; }
 .sheet-body {
   flex: 1;
   overflow-y: auto;
@@ -1574,6 +1746,31 @@ input, textarea, select { font-size: 16px; }
   border-radius: 50%;
   background: #5fb04d;
   box-shadow: 0 0 6px rgba(95, 176, 77, 0.6);
+}
+
+/* Presence indicator next to peer names. Green = online (any tab visible),
+   orange = away (all tabs hidden or fully disconnected within grace). */
+.status-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #5fb04d;
+  box-shadow: 0 0 6px rgba(95, 176, 77, 0.55);
+  margin-right: 6px;
+  vertical-align: middle;
+}
+.status-dot.is-away {
+  background: #d98b27;
+  box-shadow: 0 0 6px rgba(217, 139, 39, 0.55);
+}
+/* Shrink the dot inside the iso-scene peer tag — the tag is 10px text
+   so the default 8px dot would dominate. */
+.peer-tag .status-dot {
+  width: 6px;
+  height: 6px;
+  margin-right: 4px;
+  box-shadow: none;
 }
 .person-edit {
   appearance: none;
@@ -2039,30 +2236,6 @@ input, textarea, select { font-size: 16px; }
   100% { transform: scale(1); }
 }
 
-/* Subdued action footer for "clear queue" / "disconnect spotify". */
-.music-footer {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 14px;
-  margin-top: 24px;
-  padding-top: 14px;
-  border-top: 1px solid rgba(0, 0, 0, 0.08);
-}
-.music-footer-link {
-  appearance: none;
-  background: transparent;
-  border: 0;
-  cursor: pointer;
-  color: var(--muted);
-  font-family: var(--font-mono);
-  font-size: 11px;
-  font-weight: 700;
-  text-transform: var(--upper);
-  letter-spacing: var(--tracking);
-  padding: 0;
-}
-.music-footer-link:hover { color: var(--fg); }
-
 /* Chat log sheet rows */
 .chat-row {
   font-family: var(--font-mono);
@@ -2435,9 +2608,6 @@ input, textarea, select { font-size: 16px; }
   width: min(340px, 72vw);
 }
 .room-video.is-audio.corner { width: 212px; }
-.room-video-cap {
-  padding: 7px 9px 0;
-}
 .room-video-frame {
   width: 100%;
   aspect-ratio: 16 / 9;
@@ -2507,15 +2677,177 @@ input, textarea, select { font-size: 16px; }
 }
 .room-video-resize:hover { color: var(--fg); }
 
+/* ───────────── Mugshot board (floating strip) ───────────── */
+.mug-board {
+  position: absolute;
+  right: var(--hud-pad);
+  top: 64px;
+  z-index: 90;
+  background: var(--surface);
+  border: var(--border-w) solid var(--fg);
+  box-shadow: var(--shadow-hard);
+  display: flex;
+  flex-direction: column;
+}
+.mug-board-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  border-top: var(--border-w) solid var(--scene-line);
+}
+.mug-board-title {
+  flex: 1;
+  min-width: 0;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.mug-strip {
+  display: flex;
+  gap: 6px;
+  padding: 8px;
+  overflow-x: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  scroll-snap-type: x proximity;
+}
+.mug-strip::-webkit-scrollbar { display: none; }
+.mug-thumb {
+  flex: 0 0 auto;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  border: var(--border-w) solid var(--scene-line);
+  background: var(--surface-2);
+  scroll-snap-align: end;
+  position: relative;
+}
+/* Status dot tucked into the top-right corner of the photo. Bigger
+   shadow so it stays legible against any image. */
+.mug-thumb-status {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  margin: 0;
+  width: 10px;
+  height: 10px;
+  border: 1.5px solid var(--surface);
+}
+.mug-thumb img {
+  display: block;
+  width: 92px;
+  height: 92px;
+  object-fit: cover;
+  background: var(--surface-2);
+  user-select: none;
+  -webkit-user-drag: none;
+}
+.mug-thumb-name {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 4px;
+  text-align: center;
+  background: var(--surface);
+  border-top: var(--border-w) solid var(--scene-line);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 92px;
+}
+.mug-empty {
+  font-family: var(--font-body);
+  font-size: 12px;
+  color: var(--muted);
+  padding: 18px 12px;
+  width: 100%;
+  text-align: center;
+}
+
+/* ───────────── Mugshot capture sheet ───────────── */
+/* Flex column that fills the sheet-body so the preview can flex-grow
+   and the actions stay pinned to the bottom regardless of viewport. */
+.mug-layout {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  height: 100%;
+}
+.mug-stage {
+  flex: 1 1 0;
+  min-height: 80px; /* graceful floor on very short viewports */
+  display: grid;
+  place-items: center;
+  /* container-type lets the preview size itself against the stage's
+     own dimensions (`cqi` / `cqb`) rather than the viewport — so the
+     largest-square-that-fits math just works without media queries. */
+  container-type: size;
+}
+.mug-preview {
+  display: block;
+  /* Largest square that fits the stage: smaller of available width / height. */
+  width: min(100cqi, 100cqb);
+  aspect-ratio: 1 / 1;
+  object-fit: cover;
+  /* Front-facing cameras feel mirrored to the user; flip the preview only.
+     The encoded JPEG uses the unflipped source so peers see the true image. */
+  transform: scaleX(-1);
+  background: var(--surface-2);
+  border: var(--border-w) solid var(--fg);
+  box-shadow: var(--shadow-hard);
+}
+.mug-preview-empty {
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  transform: none;
+}
+.mug-actions {
+  flex: 0 0 auto;
+  display: flex;
+  gap: 8px;
+}
+.mug-actions .dial-btn { flex: 1; }
+.mug-snap { font-weight: 700; }
+
+/* Compact settings strip above the camera — interval + wall toggle. */
+.mug-settings {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.mug-settings-label {
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.mug-interval-row {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 4px;
+}
+
+
 /* Opt-in gate before first play. */
-.yt-gate {
+/* Shared "off-state pitch" layout for sheets that gate a feature
+   behind an opt-in (music, mugshot). Centered column with a square
+   mark, title, body copy, and a primary CTA. */
+.sheet-gate {
   display: flex;
   flex-direction: column;
   align-items: center;
   text-align: center;
   padding: 26px 8px 12px;
 }
-.yt-gate-mark {
+.sheet-gate-mark {
   width: 58px;
   height: 58px;
   border: var(--border-w) solid var(--fg);
@@ -2523,6 +2855,8 @@ input, textarea, select { font-size: 16px; }
   display: grid;
   place-items: center;
   margin-bottom: 18px;
-  color: #e62117;
+  color: var(--fg);
   background: var(--surface);
+  font-size: 30px;
+  line-height: 1;
 }

@@ -8,6 +8,7 @@ import type {
   ColorId,
   PlaybackState,
   User,
+  UserStatus,
 } from '../types';
 
 // Server room dimensions; we normalize to 0..100 percent for the iso scene.
@@ -43,6 +44,11 @@ export interface UseRoomStateResult {
   playback: PlaybackState;
   queue: string[];
   trackMeta: Record<string, { art: string; title: string }>;
+  mugshotIntervalS: number;
+  nextMugshotAt: number;
+  mugshotsTakenAt: Record<string, number>;
+  /** Fires when the server pushes a mugshotPrompt — for the capture UI to subscribe to. */
+  promptToken: number;
   sendMessage: (text: string) => void;
   sendVoice: (audio: ArrayBuffer, durationMs: number, mime: string) => void;
   updateMemo: (memo: string) => void;
@@ -58,6 +64,8 @@ export interface UseRoomStateResult {
   removeFromQueue: (uri: string, index: number) => void;
   advanceQueue: (afterTrackUri: string | null) => void;
   clearQueue: () => void;
+  submitMugshot: (image: ArrayBuffer, mime: string) => void;
+  updateMugshotInterval: (intervalS: number) => void;
 }
 
 const QUEUE_MAX = 200;
@@ -80,6 +88,13 @@ export function useRoomState({ onToast }: UseRoomStateOpts): UseRoomStateResult 
   const [trackMeta, setTrackMeta] = useState<
     Record<string, { art: string; title: string }>
   >({});
+  const [mugshotIntervalS, setMugshotIntervalS] = useState<number>(1800);
+  const [nextMugshotAt, setNextMugshotAt] = useState<number>(0);
+  const [mugshotsTakenAt, setMugshotsTakenAt] = useState<Record<string, number>>({});
+  // Monotonic counter bumped on every server-pushed prompt — components
+  // can useEffect on it to trigger the capture sheet without depending
+  // on the (stable) timestamp values.
+  const [promptToken, setPromptToken] = useState<number>(0);
 
   const meRef = useRef<string | null>(null);
   meRef.current = meId;
@@ -88,6 +103,131 @@ export function useRoomState({ onToast }: UseRoomStateOpts): UseRoomStateResult 
   const lastToastedTrackRef = useRef<string | null>(null);
   const onToastRef = useRef(onToast);
   onToastRef.current = onToast;
+
+  // ────────────── Lossy-emit queue ──────────────
+  // socket.io's reconnect re-fires the `connect` handler and our `doJoin`
+  // re-emits join — but during the window between socket reconnect and
+  // join-ack, the server has no session for our sid and would silently
+  // drop any emit. Buffer the user-input emits whose loss is visible
+  // (chat / mugshot / voice) until join-ack lands, then flush in order.
+  // High-frequency / state-mirror emits (`move`, `updateAmbient`, queue
+  // ops) are intentionally not queued — the next tick replaces them.
+  const joinAckedRef = useRef(false);
+  type QueuedEmit =
+    | { event: 'chat'; payload: { text: string } }
+    | { event: 'voiceMessage'; payload: { audio: ArrayBuffer; durationMs: number; mime: string } }
+    | { event: 'submitMugshot'; payload: { image: ArrayBuffer; mime: string } };
+  // Hard cap so a long disconnect with voice/mugshot payloads (each up
+  // to a few MB) can't grow the heap without bound. We FIFO-drop on
+  // overflow — better to lose the oldest queued message than to OOM.
+  const MAX_PENDING_EMITS = 20;
+  const pendingEmitsRef = useRef<QueuedEmit[]>([]);
+
+  function dispatch(item: QueuedEmit) {
+    switch (item.event) {
+      case 'chat':
+        socket.emit('chat', item.payload);
+        return;
+      case 'voiceMessage':
+        socket.emit('voiceMessage', item.payload);
+        return;
+      case 'submitMugshot':
+        socket.emit('submitMugshot', item.payload);
+        return;
+      default: {
+        // Exhaustiveness guard — adding a fourth QueuedEmit variant
+        // without a case here is a compile error instead of a silent
+        // misroute.
+        const _exhaustive: never = item;
+        void _exhaustive;
+      }
+    }
+  }
+
+  function queueOrEmit(item: QueuedEmit) {
+    if (joinAckedRef.current && socket.connected) {
+      dispatch(item);
+      return;
+    }
+    if (pendingEmitsRef.current.length >= MAX_PENDING_EMITS) {
+      // FIFO-drop oldest so the queue stays bounded.
+      pendingEmitsRef.current.shift();
+    }
+    pendingEmitsRef.current.push(item);
+  }
+
+  useEffect(() => {
+    function onJoinAck() {
+      joinAckedRef.current = true;
+      const queued = pendingEmitsRef.current.splice(0);
+      for (const item of queued) dispatch(item);
+    }
+    function onSocketDisconnect() {
+      joinAckedRef.current = false;
+    }
+    window.addEventListener('cya:join-ack', onJoinAck);
+    socket.on('disconnect', onSocketDisconnect);
+    return () => {
+      window.removeEventListener('cya:join-ack', onJoinAck);
+      socket.off('disconnect', onSocketDisconnect);
+    };
+  }, []);
+
+  // ────────────── Visibility broadcast ──────────────
+  // Drives server-side status aggregation. Fires once on mount with the
+  // current visibility (so a tab that loads while hidden is correctly
+  // away from the start), then on every change.
+  useEffect(() => {
+    if (typeof document === 'undefined') return;
+    function emitVisibility() {
+      const visible = document.visibilityState === 'visible';
+      if (socket.connected && joinAckedRef.current) {
+        socket.emit('clientVisibility', { visible });
+      }
+    }
+    emitVisibility();
+    document.addEventListener('visibilitychange', emitVisibility);
+    // Re-emit on join-ack so a reconnect immediately reports current
+    // visibility (the server may have just torn the sid's state down).
+    function onJoinAck() {
+      emitVisibility();
+    }
+    window.addEventListener('cya:join-ack', onJoinAck);
+    return () => {
+      document.removeEventListener('visibilitychange', emitVisibility);
+      window.removeEventListener('cya:join-ack', onJoinAck);
+    };
+  }, []);
+
+  // ────────────── Service-worker → toast bridge ──────────────
+  // The SW receives every Web Push and routes: if a tab is visible on
+  // the room URL it postMessage's the payload here instead of firing
+  // an OS notification. We translate that into an in-app toast so
+  // foreground users see the same content without the OS chrome.
+  useEffect(() => {
+    if (typeof navigator === 'undefined' || !('serviceWorker' in navigator)) return;
+    function onMessage(e: MessageEvent) {
+      const data = e.data;
+      if (!data || data.source !== 'cya-sw' || data.kind !== 'push') return;
+      const payload = data.payload as
+        | { kind: string; fromName?: string; text?: string }
+        | undefined;
+      if (!payload) return;
+      if (payload.kind === 'message' && payload.fromName) {
+        onToastRef.current(`${payload.fromName}: ${payload.text || ''}`);
+      } else if (payload.kind === 'voice' && payload.fromName) {
+        onToastRef.current(`${payload.fromName}: 🎤 voice message`);
+      } else if (payload.kind === 'mugshot') {
+        // Mugshot prompt already toasts via useMugshotPrompt — skip
+        // here to avoid double-toasting when both the socket event
+        // and the push arrive at a visible tab.
+      }
+    }
+    navigator.serviceWorker.addEventListener('message', onMessage);
+    return () => {
+      navigator.serviceWorker.removeEventListener('message', onMessage);
+    };
+  }, []);
 
   // ────────────── Socket wiring ──────────────
   useEffect(() => {
@@ -98,6 +238,9 @@ export function useRoomState({ onToast }: UseRoomStateOpts): UseRoomStateResult 
       ambient: Ambient;
       playback: PlaybackState;
       queue?: string[];
+      mugshotIntervalS?: number;
+      nextMugshotAt?: number;
+      mugshotsTakenAt?: Record<string, number>;
     }) {
       setMeId(payload.you.id);
       const normalized = payload.users.map((u) => ({
@@ -110,6 +253,13 @@ export function useRoomState({ onToast }: UseRoomStateOpts): UseRoomStateResult 
       if (payload.ambient) setAmbient(payload.ambient);
       if (payload.playback) setPlayback(payload.playback);
       if (Array.isArray(payload.queue)) setQueue(payload.queue);
+      if (typeof payload.mugshotIntervalS === 'number') {
+        setMugshotIntervalS(payload.mugshotIntervalS);
+      }
+      if (typeof payload.nextMugshotAt === 'number') {
+        setNextMugshotAt(payload.nextMugshotAt);
+      }
+      if (payload.mugshotsTakenAt) setMugshotsTakenAt(payload.mugshotsTakenAt);
     }
     function onUserMoved({ id, x, y }: { id: string; x: number; y: number }) {
       setUsers((prev) =>
@@ -196,29 +346,66 @@ export function useRoomState({ onToast }: UseRoomStateOpts): UseRoomStateResult 
     function onQueueChanged(payload: { queue: string[] }) {
       setQueue(payload.queue);
     }
+    function onMugshotPrompt(payload: { nextAt: number }) {
+      if (typeof payload.nextAt === 'number') setNextMugshotAt(payload.nextAt);
+      // Bump regardless of nextAt — every prompt should open the sheet.
+      setPromptToken((n) => n + 1);
+    }
+    function onMugshotSubmitted(payload: { userId: string; takenAt: number }) {
+      setMugshotsTakenAt((prev) => ({ ...prev, [payload.userId]: payload.takenAt }));
+    }
+    function onMugshotIntervalChanged(payload: { intervalS: number; nextAt: number }) {
+      setMugshotIntervalS(payload.intervalS);
+      setNextMugshotAt(payload.nextAt);
+    }
+    function onUserLeftDropMugshot({ id }: { id: string }) {
+      // Server drops the mugshot on disconnect; mirror that on the
+      // client so the board updates without waiting for a refetch.
+      setMugshotsTakenAt((prev) => {
+        if (!(id in prev)) return prev;
+        const next = { ...prev };
+        delete next[id];
+        return next;
+      });
+    }
+    function onUserStatusChanged({ id, status }: { id: string; status: UserStatus }) {
+      setUsers((prev) =>
+        prev.map((p) => (p.id === id ? { ...p, status } : p)),
+      );
+    }
 
     socket.on('state', onState as never);
     socket.on('queueChanged', onQueueChanged);
     socket.on('userJoined', handleUserJoined);
     socket.on('userLeft', handleUserLeft);
+    socket.on('userLeft', onUserLeftDropMugshot);
     socket.on('userMoved', onUserMoved);
     socket.on('userUpdated', onUserUpdated);
     socket.on('chatMessage', onChat);
     socket.on('audioExpired', onAudioExpired);
     socket.on('ambientChanged', onAmbientChanged);
     socket.on('playbackChanged', handlePlaybackChanged);
+    socket.on('mugshotPrompt', onMugshotPrompt);
+    socket.on('mugshotSubmitted', onMugshotSubmitted);
+    socket.on('mugshotIntervalChanged', onMugshotIntervalChanged);
+    socket.on('userStatusChanged', onUserStatusChanged);
 
     return () => {
       socket.off('state', onState as never);
       socket.off('queueChanged', onQueueChanged);
       socket.off('userJoined', handleUserJoined);
       socket.off('userLeft', handleUserLeft);
+      socket.off('userLeft', onUserLeftDropMugshot);
       socket.off('userMoved', onUserMoved);
       socket.off('userUpdated', onUserUpdated);
       socket.off('chatMessage', onChat);
       socket.off('audioExpired', onAudioExpired);
       socket.off('ambientChanged', onAmbientChanged);
       socket.off('playbackChanged', handlePlaybackChanged);
+      socket.off('mugshotPrompt', onMugshotPrompt);
+      socket.off('mugshotSubmitted', onMugshotSubmitted);
+      socket.off('mugshotIntervalChanged', onMugshotIntervalChanged);
+      socket.off('userStatusChanged', onUserStatusChanged);
     };
   }, []);
 
@@ -292,11 +479,11 @@ export function useRoomState({ onToast }: UseRoomStateOpts): UseRoomStateResult 
   function sendMessage(text: string) {
     const t = text.trim();
     if (!t) return;
-    socket.emit('chat', { text: t });
+    queueOrEmit({ event: 'chat', payload: { text: t } });
   }
   function sendVoice(audio: ArrayBuffer, durationMs: number, mime: string) {
     if (!audio.byteLength || durationMs <= 0) return;
-    socket.emit('voiceMessage', { audio, durationMs, mime });
+    queueOrEmit({ event: 'voiceMessage', payload: { audio, durationMs, mime } });
   }
   function updateMemo(memo: string) {
     // Optimistic update of the local user's memo — server will echo it back
@@ -362,6 +549,17 @@ export function useRoomState({ onToast }: UseRoomStateOpts): UseRoomStateResult 
     setQueue([]);
     socket.emit('clearQueue');
   }
+  function submitMugshot(image: ArrayBuffer, mime: string) {
+    if (!image.byteLength) return;
+    queueOrEmit({ event: 'submitMugshot', payload: { image, mime } });
+  }
+  function updateMugshotInterval(intervalS: number) {
+    if (!Number.isFinite(intervalS) || intervalS <= 0) return;
+    // Optimistic — server echoes back via mugshotIntervalChanged.
+    setMugshotIntervalS(intervalS);
+    setNextMugshotAt(Date.now() + intervalS * 1000);
+    socket.emit('updateMugshotInterval', { intervalS });
+  }
 
   return {
     meId,
@@ -373,6 +571,10 @@ export function useRoomState({ onToast }: UseRoomStateOpts): UseRoomStateResult 
     playback,
     queue,
     trackMeta,
+    mugshotIntervalS,
+    nextMugshotAt,
+    mugshotsTakenAt,
+    promptToken,
     sendMessage,
     sendVoice,
     updateMemo,
@@ -384,5 +586,7 @@ export function useRoomState({ onToast }: UseRoomStateOpts): UseRoomStateResult 
     removeFromQueue,
     advanceQueue,
     clearQueue,
+    submitMugshot,
+    updateMugshotInterval,
   };
 }

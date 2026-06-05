@@ -50,6 +50,12 @@ export function useYoutubePlayer({ playback, onEnded }: UseYoutubePlayerOpts): U
 
   const playerRef = useRef<YTPlayer | null>(null);
   const containerRef = useRef<HTMLElement | null>(null);
+  // Track the videoId the live player is mounted with. Lets attach()
+  // fast-path no-op when called with the same container + same video,
+  // which is the common case for non-music sheets opening (they don't
+  // change the player surface, but Room.tsx's useEffect deps include
+  // `sheet`, so it re-fires on every open/close).
+  const currentVideoIdRef = useRef<string | null>(null);
   const pollRef = useRef<number | null>(null);
   const onEndedRef = useRef(onEnded);
   onEndedRef.current = onEnded;
@@ -119,6 +125,46 @@ export function useYoutubePlayer({ playback, onEnded }: UseYoutubePlayerOpts): U
 
   const attach = useCallback(
     async (container: HTMLElement | null, opts: AttachOpts | null) => {
+      // Fast-path A: same container + same video + a live player → no-op.
+      // Without this, opening any non-music sheet would destroy and
+      // rebuild the YouTube iframe (Room.tsx's effect re-fires because
+      // `sheet` is in its deps), causing a brief audible pause.
+      // play/pause state is handled by the separate sync effect below,
+      // so we don't need to touch the player here when the surface
+      // hasn't changed.
+      if (
+        container &&
+        container === containerRef.current &&
+        playerRef.current &&
+        opts &&
+        opts.videoId === currentVideoIdRef.current
+      ) {
+        return;
+      }
+      // Fast-path B: container changed but the video is the same and
+      // we already have a live player → move the iframe to the new
+      // container instead of destroying and rebuilding. Playback
+      // continues seamlessly. Covers the common cases of opening /
+      // closing the music sheet and toggling the in-room player.
+      if (
+        container &&
+        container !== containerRef.current &&
+        playerRef.current &&
+        opts &&
+        opts.videoId === currentVideoIdRef.current
+      ) {
+        try {
+          const iframe = playerRef.current.getIframe();
+          if (iframe) {
+            container.innerHTML = '';
+            container.appendChild(iframe);
+            containerRef.current = container;
+            return;
+          }
+        } catch {
+          // fall through to destroy + rebuild
+        }
+      }
       containerRef.current = container;
       clearPoll();
       if (playerRef.current) {
@@ -130,6 +176,7 @@ export function useYoutubePlayer({ playback, onEnded }: UseYoutubePlayerOpts): U
         playerRef.current = null;
       }
       if (!container || !opts || !opts.videoId) {
+        currentVideoIdRef.current = null;
         setStatus('idle');
         return;
       }
@@ -144,7 +191,9 @@ export function useYoutubePlayer({ playback, onEnded }: UseYoutubePlayerOpts): U
       }
       if (!buildPlayer(container, opts)) {
         setStatus('error');
+        return;
       }
+      currentVideoIdRef.current = opts.videoId;
     },
     [buildPlayer],
   );

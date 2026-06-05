@@ -1,4 +1,4 @@
-import { type FormEvent, type PointerEvent as ReactPointerEvent } from 'react';
+import { useEffect, useState, type FormEvent, type PointerEvent as ReactPointerEvent } from 'react';
 import Icon from '../Icon';
 import { useVoiceRecorder } from '../../hooks/useVoiceRecorder';
 import { formatVoiceDuration } from '../../hooks/useRoomState';
@@ -9,16 +9,10 @@ interface RoomDockProps {
   roomId: string;
   onSendVoice: (audio: ArrayBuffer, durationMs: number, mime: string) => void;
   playback: PlaybackState;
-  playbackMeta: string;
   /** True once the local user has opted into music. */
   musicEnabled: boolean;
   trackArt: string | undefined;
   trackTitle: string | undefined;
-  /** Player is in audio-only mode — hide the "watch in room" toggle. */
-  audioOnly: boolean;
-  /** Room video surface is currently visible (placement != off). */
-  roomVideoOn: boolean;
-  onToggleRoomVideo: () => void;
   draft: string;
   setDraft: (v: string) => void;
   onSend: (text: string) => void;
@@ -26,10 +20,12 @@ interface RoomDockProps {
   onOpenAmbience: () => void;
   onOpenMinds: () => void;
   onOpenChat: () => void;
-  hasQueue: boolean;
-  onPrev: () => void;
   onTogglePlay: () => void;
-  onNext: () => void;
+  mugshotOptIn: boolean;
+  onOpenMugshot: () => void;
+  /** ms timestamp of the next scheduled mugshot prompt. */
+  mugshotNextAt: number;
+  mugshotIntervalS: number;
 }
 
 function ambientGlyph(a: Ambient): string {
@@ -42,17 +38,120 @@ function ambientGlyph(a: Ambient): string {
   return '☀';
 }
 
+interface MugshotGlyphProps {
+  optIn: boolean;
+  nextAt: number;
+  intervalS: number;
+  onOpen: () => void;
+}
+
+/** Single glyph button. When opted in: a 1Hz-ticking countdown ring
+ *  around a center dot. When opted out: a static hollow ring so it's
+ *  visibly "off" but still tappable as the path back into the sheet. */
+function MugshotGlyph({ optIn, nextAt, intervalS, onOpen }: MugshotGlyphProps) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    // No ticker when opted out — nothing to count down toward.
+    if (!optIn) return;
+    const id = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(id);
+  }, [optIn]);
+
+  const size = 18;
+  const r = 7;
+  const c = 2 * Math.PI * r;
+
+  if (!optIn) {
+    return (
+      <button
+        type="button"
+        className="dock-glyph is-off"
+        onClick={onOpen}
+        aria-label="mugshot · off"
+        title="mugshot · off — tap to join the wall"
+      >
+        <svg
+          width={size}
+          height={size}
+          viewBox="0 0 18 18"
+          aria-hidden="true"
+          style={{ display: 'block' }}
+        >
+          <circle
+            cx="9"
+            cy="9"
+            r={r}
+            fill="none"
+            stroke="currentColor"
+            strokeOpacity="0.45"
+            strokeWidth="1.5"
+            strokeDasharray="2 2"
+          />
+        </svg>
+      </button>
+    );
+  }
+
+  const totalMs = Math.max(1, intervalS * 1000);
+  const remainingMs = Math.max(0, nextAt - now);
+  const elapsed = Math.max(0, Math.min(1, 1 - remainingMs / totalMs));
+  const remainingMin = Math.ceil(remainingMs / 60_000);
+  const title =
+    remainingMs <= 0
+      ? 'mugshot · prompt due'
+      : remainingMs < 60_000
+        ? `mugshot · next in ${Math.ceil(remainingMs / 1000)}s`
+        : `mugshot · next in ${remainingMin}m`;
+
+  return (
+    <button
+      type="button"
+      className="dock-glyph is-active"
+      onClick={onOpen}
+      aria-label={title}
+      title={title}
+    >
+      <svg
+        width={size}
+        height={size}
+        viewBox="0 0 18 18"
+        aria-hidden="true"
+        style={{ display: 'block' }}
+      >
+        <circle
+          cx="9"
+          cy="9"
+          r={r}
+          fill="none"
+          stroke="currentColor"
+          strokeOpacity="0.22"
+          strokeWidth="1.5"
+        />
+        <circle
+          cx="9"
+          cy="9"
+          r={r}
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.8"
+          strokeLinecap="round"
+          strokeDasharray={c}
+          strokeDashoffset={c * (1 - elapsed)}
+          transform="rotate(-90 9 9)"
+        />
+        <circle cx="9" cy="9" r="2" fill="currentColor" />
+      </svg>
+    </button>
+  );
+}
+
 export function RoomDock({
   ambient,
   onSendVoice,
   playback,
-  playbackMeta,
   musicEnabled,
   trackArt,
   trackTitle,
-  audioOnly,
-  roomVideoOn,
-  onToggleRoomVideo,
   draft,
   setDraft,
   onSend,
@@ -60,10 +159,11 @@ export function RoomDock({
   onOpenAmbience,
   onOpenMinds,
   onOpenChat,
-  hasQueue,
-  onPrev,
   onTogglePlay,
-  onNext,
+  mugshotOptIn,
+  onOpenMugshot,
+  mugshotNextAt,
+  mugshotIntervalS,
 }: RoomDockProps) {
   const showTrack = musicEnabled && !!playback.trackUri;
   const recorder = useVoiceRecorder();
@@ -89,77 +189,81 @@ export function RoomDock({
   function micCancel() {
     recorder.cancel();
   }
+
   return (
     <form className="dock" onSubmit={submit}>
-      <div className="dock-chips">
-        <div className="dock-chip dock-chip-music">
-          <button type="button" className="dock-chip-open" onClick={onOpenMusic}>
-            {showTrack && trackArt ? (
-              <img src={trackArt} className="dock-chip-art" alt="" style={{ objectFit: 'cover' }} />
-            ) : (
-              <div
-                className="dock-chip-art"
-                style={{ background: 'linear-gradient(135deg, #2b2118 0%, #b54822 100%)' }}
-              />
-            )}
-            <div className="dock-chip-text">
-              <div className="dock-chip-title">
-                {showTrack ? (trackTitle || 'now playing') : 'music'}
-              </div>
-              <div className="dock-chip-meta">{playbackMeta}</div>
-            </div>
-          </button>
-          {showTrack && (
-            <div className="dock-chip-controls">
-              {!audioOnly && (
-                <button
-                  type="button"
-                  className={`dock-chip-ctrl${roomVideoOn ? ' primary' : ''}`}
-                  aria-label={roomVideoOn ? 'hide video' : 'watch video'}
-                  aria-pressed={roomVideoOn}
-                  title={roomVideoOn ? 'hide video' : 'watch in room'}
-                  onClick={onToggleRoomVideo}
-                >
-                  <Icon name="screen" size={12} />
-                </button>
-              )}
-              <button type="button" className="dock-chip-ctrl" aria-label="restart" onClick={onPrev}>
-                <Icon name="prev" size={12} />
-              </button>
-              <button
-                type="button"
-                className="dock-chip-ctrl primary"
-                aria-label={playback.isPlaying ? 'pause' : 'play'}
-                onClick={onTogglePlay}
-              >
-                <Icon name={playback.isPlaying ? 'pause' : 'play'} size={12} />
-              </button>
-              <button
-                type="button"
-                className="dock-chip-ctrl"
-                aria-label="next"
-                onClick={onNext}
-                disabled={!hasQueue}
-              >
-                <Icon name="next" size={12} />
-              </button>
-            </div>
-          )}
-        </div>
-        <button type="button" className="dock-chip compact" onClick={onOpenAmbience} aria-label="ambience">
-          <span className="dock-chip-glyph">{ambientGlyph(ambient)}</span>
-          <span className="dock-chip-meta" style={{ fontWeight: 700 }}>{ambient.time}</span>
+      {/* Peek-state row — single-glyph buttons; each opens its sheet for full controls. */}
+      <div className="dock-glyphs">
+        <button
+          type="button"
+          className="dock-glyph"
+          onClick={onOpenAmbience}
+          aria-label={`ambience · ${ambient.weather} · ${ambient.time}`}
+          title={`ambience · ${ambient.weather} · ${ambient.time}`}
+        >
+          <span className="dock-glyph-char">{ambientGlyph(ambient)}</span>
         </button>
         <button
           type="button"
-          className="dock-chip compact dock-chip-minds"
-          onClick={onOpenMinds}
-          aria-label="on everyone's mind"
+          className={`dock-glyph${musicEnabled ? ' is-active' : ''}`}
+          onClick={onOpenMusic}
+          aria-label="music"
+          title={
+            musicEnabled
+              ? showTrack
+                ? `music · ${trackTitle || 'playing'}`
+                : 'music · on'
+              : 'music · off'
+          }
         >
-          <span className="dock-chip-glyph">✺</span>
-          <span className="dock-chip-meta" style={{ fontWeight: 700 }}>minds</span>
+          <Icon name="music" size={16} />
+        </button>
+        <MugshotGlyph
+          optIn={mugshotOptIn}
+          nextAt={mugshotNextAt}
+          intervalS={mugshotIntervalS}
+          onOpen={onOpenMugshot}
+        />
+        <button
+          type="button"
+          className="dock-glyph"
+          onClick={onOpenMinds}
+          aria-label="minds"
+          title="minds"
+        >
+          <span className="dock-glyph-char">✺</span>
         </button>
       </div>
+
+      {/* Now-playing ticker — only visible when music is playing. Keeps
+          play/pause inline (the most-common in-flight action); next /
+          restart / room-video toggle move into the music sheet. */}
+      {showTrack && (
+        <div className="dock-ticker">
+          {trackArt ? (
+            <img src={trackArt} className="dock-ticker-art" alt="" />
+          ) : (
+            <div className="dock-ticker-art dock-ticker-art-empty" aria-hidden="true" />
+          )}
+          <button
+            type="button"
+            className="dock-ticker-title"
+            onClick={onOpenMusic}
+            title="open music"
+          >
+            {trackTitle || 'now playing'}
+          </button>
+          <button
+            type="button"
+            className="dock-chip-ctrl primary"
+            aria-label={playback.isPlaying ? 'pause' : 'play'}
+            onClick={onTogglePlay}
+          >
+            <Icon name={playback.isPlaying ? 'pause' : 'play'} size={12} />
+          </button>
+        </div>
+      )}
+
       <div className="composer">
         {recording ? (
           <div className="composer-input is-recording" aria-live="polite">

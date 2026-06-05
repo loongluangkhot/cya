@@ -24,6 +24,20 @@ class JoinPayload(TypedDict, total=False):
     character: str
     color: str
     memo: str
+    # Stable per-browser identifier persisted in the client's localStorage.
+    # Lets the server treat reconnects (refresh, background-tab drop) as
+    # the same user instead of a fresh sid each time.
+    clientId: str
+
+
+class ClientVisibilityPayload(TypedDict, total=False):
+    visible: bool
+
+
+class SubscribePushPayload(TypedDict, total=False):
+    """Browser PushSubscription serialised via `subscription.toJSON()`."""
+    endpoint: str
+    keys: dict[str, str]
 
 
 class MovePayload(TypedDict, total=False):
@@ -84,6 +98,15 @@ class UpdateAmbientPayload(TypedDict, total=False):
 
 class ChatPayload(TypedDict, total=False):
     text: str
+
+
+class SubmitMugshotPayload(TypedDict, total=False):
+    image: bytes
+    mime: str
+
+
+class UpdateMugshotIntervalPayload(TypedDict, total=False):
+    intervalS: int
 
 
 # Outgoing wire shape — emitted in `state` and `playbackChanged`.

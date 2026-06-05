@@ -40,6 +40,8 @@ export interface Ambient {
 
 // @sync: backend/main.py:User
 export interface User {
+  /** Server-stable identifier (clientId from the join payload). Replaces
+   *  the old sid-keyed identity so reconnects don't churn user.id. */
   id: string;
   name: string;
   character: CharacterId;
@@ -49,7 +51,11 @@ export interface User {
   direction: Direction;
   /** "On My Mind" memo — markdown text the user carries between rooms. */
   memo: string;
+  /** Presence — "online" while any tab reports visible, "away" otherwise. */
+  status: UserStatus;
 }
+
+export type UserStatus = 'online' | 'away';
 
 export type ChatMessageKind = 'text' | 'voice';
 
@@ -92,6 +98,11 @@ export interface StatePayload {
   ambient: Ambient;
   playback: PlaybackState;
   queue: string[];
+  mugshotIntervalS: number;
+  /** ms timestamp of the next scheduled prompt. */
+  nextMugshotAt: number;
+  /** Per-user `takenAt` ms timestamps. Image bytes are fetched via HTTP. */
+  mugshotsTakenAt: Record<string, number>;
 }
 
 export interface MovePayload {
@@ -121,11 +132,15 @@ export interface ServerToClientEvents {
   userLeft: (payload: { id: string }) => void;
   userMoved: (payload: MovePayload) => void;
   userUpdated: (payload: UserUpdatedPayload) => void;
+  userStatusChanged: (payload: { id: string; status: UserStatus }) => void;
   chatMessage: (msg: ChatMessage) => void;
   audioExpired: (payload: { ids: string[] }) => void;
   ambientChanged: (payload: Ambient) => void;
   playbackChanged: (payload: PlaybackState) => void;
   queueChanged: (payload: { queue: string[] }) => void;
+  mugshotPrompt: (payload: { nextAt: number }) => void;
+  mugshotSubmitted: (payload: { userId: string; takenAt: number }) => void;
+  mugshotIntervalChanged: (payload: { intervalS: number; nextAt: number }) => void;
 }
 
 export interface JoinAck {
@@ -141,9 +156,11 @@ export interface ClientToServerEvents {
       character: CharacterId;
       color: ColorId;
       memo: string;
+      clientId: string;
     },
     ack?: (res: JoinAck) => void,
   ) => void;
+  clientVisibility: (payload: { visible: boolean }) => void;
   move: (payload: { x: number; y: number; direction: Direction }) => void;
   chat: (payload: { text: string }) => void;
   voiceMessage: (payload: {
@@ -167,6 +184,17 @@ export interface ClientToServerEvents {
   removeFromQueue: (payload: { uri: string; index?: number }) => void;
   advanceQueue: (payload: { afterTrackUri: string | null }) => void;
   clearQueue: () => void;
+  submitMugshot: (payload: {
+    image: ArrayBuffer | Uint8Array;
+    mime: string;
+  }) => void;
+  updateMugshotInterval: (payload: { intervalS: number }) => void;
+  subscribePush: (payload: {
+    endpoint: string;
+    keys: { p256dh: string; auth: string };
+    expirationTime?: number | null;
+  }) => void;
+  unsubscribePush: () => void;
 }
 
 export interface ColorMap {

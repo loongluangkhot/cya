@@ -2,8 +2,8 @@ import Icon from '../../Icon';
 
 export function MusicGate({ onEnable }: { onEnable: () => void }) {
   return (
-    <div className="yt-gate">
-      <div className="yt-gate-mark">
+    <div className="sheet-gate">
+      <div className="sheet-gate-mark" style={{ color: '#e62117' }}>
         <Icon name="yt" size={30} />
       </div>
       <div className="h-display" style={{ fontSize: 20, marginBottom: 8 }}>

@@ -24,6 +24,10 @@ export interface YTPlayer {
   getCurrentTime(): number;
   getDuration(): number;
   destroy(): void;
+  /** Returns the iframe element the player owns. Used to relocate the
+   *  player between containers without destroying it (which would
+   *  audibly pause the current track). */
+  getIframe(): HTMLIFrameElement;
   cuePlaylist?(opts: { list: string; listType?: string; index?: number }): void;
   getPlaylist?(): string[] | null;
 }

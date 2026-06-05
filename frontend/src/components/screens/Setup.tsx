@@ -8,13 +8,6 @@ import {
   colorHex,
   darken,
 } from '../../characters';
-import {
-  THEMES,
-  applyTheme,
-  loadTheme,
-  saveTheme,
-  type ThemeId,
-} from '../../themes';
 import type { CharacterId, ColorId } from '../../types';
 import PixelCharacter from '../PixelCharacter';
 import Wordmark from '../Wordmark';
@@ -25,6 +18,11 @@ export interface Identity {
   character: CharacterId;
   /** "On My Mind" memo — markdown, carried between rooms. May be ''. */
   memo: string;
+  /** Stable per-browser id. Generated once on first load, persisted in
+   *  localStorage forever. Used as the server-side user identity so a
+   *  reconnect (refresh, background-tab freeze) is recognised as the
+   *  same user instead of a brand-new sid. */
+  clientId: string;
 }
 
 interface SetupProps {
@@ -38,24 +36,27 @@ export function SetupScreen({ initial, onDone, onCancel, submitLabel }: SetupPro
   const [name, setName] = useState(initial?.name || '');
   const [color, setColor] = useState<ColorId>(initial?.color || DEFAULT_COLOR);
   const [character, setCharacter] = useState<CharacterId>(initial?.character || DEFAULT_CHARACTER);
-  const [theme, setTheme] = useState<ThemeId>(() => loadTheme());
   const canSave = name.trim().length > 0;
   const preview = name.trim() || 'you';
-
-  // Theme is a personal preference — apply + persist immediately on
-  // selection so the user sees the change as a live preview. It's
-  // independent of identity (cancelling setup keeps the new theme).
-  function chooseTheme(next: ThemeId) {
-    setTheme(next);
-    applyTheme(next);
-    saveTheme(next);
-  }
 
   function submit(e: FormEvent) {
     e.preventDefault();
     if (!canSave) return;
-    // Memo isn't editable from setup — preserve whatever the user already had.
-    onDone({ name: name.trim(), color, character, memo: initial?.memo ?? '' });
+    // Memo + clientId aren't editable from setup. Memo carries over;
+    // clientId is generated lazily here for fresh identities and is
+    // never rotated afterwards (server uses it as the stable user key).
+    const clientId =
+      initial?.clientId ||
+      (typeof crypto !== 'undefined' && 'randomUUID' in crypto
+        ? crypto.randomUUID()
+        : `cid-${Math.random().toString(36).slice(2)}-${Date.now().toString(36)}`);
+    onDone({
+      name: name.trim(),
+      color,
+      character,
+      memo: initial?.memo ?? '',
+      clientId,
+    });
   }
 
   return (
@@ -144,30 +145,6 @@ export function SetupScreen({ initial, onDone, onCancel, submitLabel }: SetupPro
               </button>
             );
           })}
-        </div>
-      </div>
-
-      <div style={{ marginBottom: 24 }}>
-        <div className="label">look</div>
-        <div className="theme-grid">
-          {THEMES.map((t) => (
-            <button
-              key={t.id}
-              type="button"
-              className={`theme-tile${t.id === theme ? ' selected' : ''}`}
-              onClick={() => chooseTheme(t.id)}
-              aria-pressed={t.id === theme}
-              aria-label={`theme: ${t.name}`}
-            >
-              <div
-                className="theme-swatch"
-                style={{ background: t.bg, borderColor: t.fg, color: t.fg }}
-              >
-                Aa
-              </div>
-              <span className="theme-tile-label">{t.name}</span>
-            </button>
-          ))}
         </div>
       </div>
 

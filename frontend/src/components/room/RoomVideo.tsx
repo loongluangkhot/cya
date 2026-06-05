@@ -140,9 +140,6 @@ export function RoomVideo({
       className={`room-video ${placement}${audioOnly ? ' is-audio' : ''}${pos || width !== null ? ' is-dragged' : ''}`}
       style={style}
     >
-      {placement === 'wall' && !audioOnly && (
-        <div className="room-video-cap h-mono">now playing</div>
-      )}
       {audioOnly ? (
         <img
           src={meta.art || thumbUrl(trackId)}
@@ -190,7 +187,8 @@ export function RoomVideo({
         <button
           type="button"
           className="dock-chip-ctrl"
-          aria-label="hide video"
+          aria-label="hide in-room player"
+          title="hide in-room player"
           onClick={onClose}
         >
           <Icon name="x" size={12} />

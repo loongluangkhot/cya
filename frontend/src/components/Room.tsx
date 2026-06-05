@@ -3,6 +3,7 @@ import IsoScene from './IsoScene';
 import { AmbienceOverlay } from './room/AmbienceOverlay';
 import { DPad } from './room/DPad';
 import { IrcLog } from './room/IrcLog';
+import { MugshotBoard } from './room/MugshotBoard';
 import { RoomDock } from './room/RoomDock';
 import { RoomTopBar } from './room/RoomTopBar';
 import { RoomVideo, type RoomPlacement } from './room/RoomVideo';
@@ -11,13 +12,18 @@ import { AmbienceSheet } from './sheets/AmbienceSheet';
 import { ChatLogSheet } from './sheets/ChatLogSheet';
 import { MemoEditorSheet } from './sheets/MemoEditorSheet';
 import { MindsSheet } from './sheets/MindsSheet';
+import { MugshotSheet } from './sheets/MugshotSheet';
 import { MusicSheet, type PlayerMode } from './sheets/MusicSheet';
 import { PeopleSheet } from './sheets/PeopleSheet';
+import { SettingsSheet } from './sheets/SettingsSheet';
+import { useMessageNotifications } from '../hooks/useMessageNotifications';
 import { useMovement } from '../hooks/useMovement';
+import { useMugshotPrompt } from '../hooks/useMugshotPrompt';
 import { useRoomState } from '../hooks/useRoomState';
 import { useStoredState } from '../hooks/useStoredState';
 import { useToasts } from '../hooks/useToasts';
 import { useYoutubePlayer } from '../hooks/useYoutubePlayer';
+import { applyTheme, loadTheme, saveTheme, type ThemeId } from '../themes';
 import type { User } from '../types';
 
 interface RoomProps {
@@ -27,10 +33,21 @@ interface RoomProps {
   onMemoPersist: (memo: string) => void;
 }
 
-type SheetId = 'people' | 'chat' | 'music' | 'ambience' | 'minds' | 'memo-editor' | null;
+type SheetId =
+  | 'people'
+  | 'chat'
+  | 'music'
+  | 'ambience'
+  | 'minds'
+  | 'memo-editor'
+  | 'settings'
+  | 'mugshot'
+  | null;
 
 const PLAYER_MODE_KEY = 'cya:yt:mode:v1';
 const ROOM_PLACEMENT_KEY = 'cya:yt:room:v1';
+const MUG_OPT_IN_KEY = 'cya:mug:opt-in:v1';
+const MUG_BOARD_ON_KEY = 'cya:mug:board:v1';
 
 function validatePlayerMode(v: unknown): PlayerMode | null {
   return v === 'theater' || v === 'audio' ? v : null;
@@ -51,6 +68,10 @@ export default function Room({ roomId, onEditMe, onLeave, onMemoPersist }: RoomP
     playback,
     queue,
     trackMeta,
+    mugshotIntervalS,
+    nextMugshotAt,
+    mugshotsTakenAt,
+    promptToken,
     sendMessage,
     sendVoice,
     updateMemo,
@@ -62,6 +83,8 @@ export default function Room({ roomId, onEditMe, onLeave, onMemoPersist }: RoomP
     removeFromQueue,
     advanceQueue,
     clearQueue,
+    submitMugshot,
+    updateMugshotInterval,
   } = useRoomState({ onToast: pushToast });
   const { nudge, wandering, setWandering } = useMovement({ meId, users, setUsers });
 
@@ -79,6 +102,38 @@ export default function Room({ roomId, onEditMe, onLeave, onMemoPersist }: RoomP
 
   const [sheet, setSheet] = useState<SheetId>(null);
   const [draft, setDraft] = useState('');
+  const [theme, setTheme] = useState<ThemeId>(() => loadTheme());
+  const { state: notifState, toggle: toggleNotif } = useMessageNotifications({
+    roomId,
+    // meId === User.id === clientId post-refactor; null until first
+    // state arrives. The hook short-circuits its subscription effect
+    // until this becomes a non-null clientId.
+    clientId: meId,
+    messages,
+    meId,
+  });
+
+  // Mugshot opt-in is local — opting out hides both the prompts *and* the
+  // board ("share to see"). Defaults to true; only persisted when the
+  // user explicitly toggles.
+  const [mugshotOptIn, setMugshotOptIn] = useStoredState<boolean>(
+    MUG_OPT_IN_KEY,
+    true,
+    (v) => (typeof v === 'boolean' ? v : null),
+  );
+  const [mugshotBoardOn, setMugshotBoardOn] = useStoredState<boolean>(
+    MUG_BOARD_ON_KEY,
+    true,
+    (v) => (typeof v === 'boolean' ? v : null),
+  );
+
+  useMugshotPrompt({
+    promptToken,
+    optIn: mugshotOptIn,
+    roomId,
+    onToast: pushToast,
+    onOpenCapture: () => setSheet('mugshot'),
+  });
 
   // Player stays mounted across sheet open/close — we move it between
   // surfaces (music sheet stage, in-room video, hidden audio host).
@@ -86,11 +141,17 @@ export default function Room({ roomId, onEditMe, onLeave, onMemoPersist }: RoomP
   const roomStageRef = useRef<HTMLDivElement | null>(null);
   const audioHostRef = useRef<HTMLDivElement | null>(null);
 
-  // Remember the last non-off placement so the dock toggle can restore it.
+  // Remember the last non-off placement so the music sheet's popup
+  // toggle can restore it. ('wall' is reachable via stored prefs only;
+  // we never set it from the UI today.)
   const lastVisiblePlacementRef = useRef<RoomPlacement>('corner');
   useEffect(() => {
     if (roomPlacement !== 'off') lastVisiblePlacementRef.current = roomPlacement;
   }, [roomPlacement]);
+  function toggleRoomVideo() {
+    if (roomPlacement === 'off') setRoomPlacement(lastVisiblePlacementRef.current);
+    else setRoomPlacement('off');
+  }
 
   // Decide which surface the player mounts into. Priority:
   // audio-only → hidden host; music sheet open → sheet; else if room
@@ -153,11 +214,6 @@ export default function Room({ roomId, onEditMe, onLeave, onMemoPersist }: RoomP
     changePlayback({ trackUri: videoId, isPlaying: true, positionMs: 0 });
   }
 
-  function toggleRoomVideo() {
-    if (roomPlacement === 'off') setRoomPlacement(lastVisiblePlacementRef.current);
-    else setRoomPlacement('off');
-  }
-
   // Local opt-out — unsubscribe from the room's shared music. The room's
   // playback and queue keep going for everyone else; re-enabling here just
   // resumes at whatever the shared state is now.
@@ -170,13 +226,6 @@ export default function Room({ roomId, onEditMe, onLeave, onMemoPersist }: RoomP
   }
 
   const peersById: Record<string, User> = Object.fromEntries(users.map((u) => [u.id, u]));
-  const dockMeta = !ytPlayer.enabled
-    ? 'off'
-    : !playback.trackUri
-      ? 'tap to set a track'
-      : playback.isPlaying
-        ? 'playing'
-        : 'paused';
 
   const showRoomVideo =
     ytPlayer.enabled &&
@@ -186,70 +235,84 @@ export default function Room({ roomId, onEditMe, onLeave, onMemoPersist }: RoomP
 
   return (
     <div className="room-root">
-      <IsoScene
-        peers={users}
-        meId={meId}
-        bubbles={bubbles}
-        room={ambient.room}
-        onOpenMemo={() => setSheet('minds')}
-        onWriteMemo={() => setSheet('memo-editor')}
-      />
-      <AmbienceOverlay ambient={ambient} />
-
-      {/* Hidden host keeps audio alive when no visible surface is mounted. */}
-      <div ref={audioHostRef} className="yt-audio-host" aria-hidden="true" />
-
-      {showRoomVideo && playback.trackUri && (
-        <RoomVideo
-          trackId={playback.trackUri}
-          placement={roomPlacement === 'wall' ? 'wall' : 'corner'}
-          audioOnly={playerMode === 'audio'}
-          isPlaying={playback.isPlaying}
-          hasQueue={queue.length > 0}
-          stageRef={roomStageRef}
-          onOpen={() => setSheet('music')}
-          onTogglePlay={dockTogglePlay}
-          onNext={dockNext}
-          onClose={() => setRoomPlacement('off')}
+      {/* The scene takes the leftover space above the dock. The dock
+          is a flex sibling — its natural height pushes the scene up,
+          so HUD elements positioned `bottom: N` inside .room-scene
+          stay anchored above the dock without any JS-driven sizing. */}
+      <div className="room-scene">
+        <IsoScene
+          peers={users}
+          meId={meId}
+          bubbles={bubbles}
+          room={ambient.room}
+          onOpenMemo={() => setSheet('minds')}
+          onWriteMemo={() => setSheet('memo-editor')}
         />
-      )}
+        <AmbienceOverlay ambient={ambient} />
 
-      <DPad
-        onNudge={(dx, dy) => {
-          setWandering(false);
-          nudge(dx, dy);
-        }}
-      />
-      <button
-        type="button"
-        className={`wander-btn${wandering ? ' active' : ''}`}
-        onClick={() => setWandering((w) => !w)}
-        aria-pressed={wandering}
-      >
-        wander
-      </button>
+        {/* Hidden host keeps audio alive when no visible surface is mounted. */}
+        <div ref={audioHostRef} className="yt-audio-host" aria-hidden="true" />
 
-      <RoomTopBar
-        roomId={roomId}
-        peers={users}
-        onOpenPeople={() => setSheet('people')}
-        onLeave={onLeave}
-      />
+        {showRoomVideo && playback.trackUri && (
+          <RoomVideo
+            trackId={playback.trackUri}
+            placement={roomPlacement === 'wall' ? 'wall' : 'corner'}
+            audioOnly={playerMode === 'audio'}
+            isPlaying={playback.isPlaying}
+            hasQueue={queue.length > 0}
+            stageRef={roomStageRef}
+            onOpen={() => setSheet('music')}
+            onTogglePlay={dockTogglePlay}
+            onNext={dockNext}
+            onClose={() => setRoomPlacement('off')}
+          />
+        )}
 
-      <IrcLog messages={messages.slice(-4)} peersById={peersById} roomId={roomId} />
+        <div className="dpad-stack">
+          <DPad
+            onNudge={(dx, dy) => {
+              setWandering(false);
+              nudge(dx, dy);
+            }}
+          />
+          <button
+            type="button"
+            className={`wander-btn${wandering ? ' active' : ''}`}
+            onClick={() => setWandering((w) => !w)}
+            aria-pressed={wandering}
+          >
+            wander
+          </button>
+        </div>
+
+        <RoomTopBar
+          roomId={roomId}
+          peers={users}
+          onOpenPeople={() => setSheet('people')}
+          onOpenSettings={() => setSheet('settings')}
+          onLeave={onLeave}
+        />
+
+        <IrcLog messages={messages} peersById={peersById} roomId={roomId} />
+
+        {mugshotOptIn && mugshotBoardOn && (
+          <MugshotBoard
+            roomId={roomId}
+            users={users}
+            takenAt={mugshotsTakenAt}
+            onClose={() => setMugshotBoardOn(false)}
+          />
+        )}
+      </div>
 
       <RoomDock
         ambient={ambient}
         roomId={roomId}
         onSendVoice={sendVoice}
         playback={playback}
-        playbackMeta={dockMeta}
         musicEnabled={ytPlayer.enabled}
         trackArt={playback.trackUri ? trackMeta[playback.trackUri]?.art : undefined}
         trackTitle={playback.trackUri ? trackMeta[playback.trackUri]?.title : undefined}
-        audioOnly={playerMode === 'audio'}
-        roomVideoOn={roomPlacement !== 'off'}
-        onToggleRoomVideo={toggleRoomVideo}
         draft={draft}
         setDraft={setDraft}
         onSend={onSend}
@@ -257,10 +320,11 @@ export default function Room({ roomId, onEditMe, onLeave, onMemoPersist }: RoomP
         onOpenAmbience={() => setSheet('ambience')}
         onOpenMinds={() => setSheet('minds')}
         onOpenChat={() => setSheet('chat')}
-        hasQueue={queue.length > 0}
-        onPrev={dockRestart}
         onTogglePlay={dockTogglePlay}
-        onNext={dockNext}
+        mugshotOptIn={mugshotOptIn}
+        onOpenMugshot={() => setSheet('mugshot')}
+        mugshotNextAt={nextMugshotAt}
+        mugshotIntervalS={mugshotIntervalS}
       />
 
       <Toasts items={toasts} />
@@ -302,6 +366,8 @@ export default function Room({ roomId, onEditMe, onLeave, onMemoPersist }: RoomP
         onRemoveFromQueue={removeFromQueue}
         onClearQueue={clearQueue}
         onExpandPlaylist={expandPlaylist}
+        roomVideoOn={roomPlacement !== 'off'}
+        onToggleRoomVideo={toggleRoomVideo}
       />
       <AmbienceSheet
         open={sheet === 'ambience'}
@@ -324,6 +390,29 @@ export default function Room({ roomId, onEditMe, onLeave, onMemoPersist }: RoomP
           changeMemo(memo);
           setSheet('minds');
         }}
+      />
+      <SettingsSheet
+        open={sheet === 'settings'}
+        onClose={() => setSheet(null)}
+        theme={theme}
+        onChangeTheme={(next) => {
+          setTheme(next);
+          applyTheme(next);
+          saveTheme(next);
+        }}
+        notifState={notifState}
+        onToggleNotif={toggleNotif}
+      />
+      <MugshotSheet
+        open={sheet === 'mugshot'}
+        onClose={() => setSheet(null)}
+        onSubmit={submitMugshot}
+        optIn={mugshotOptIn}
+        onToggleOptIn={() => setMugshotOptIn((v) => !v)}
+        boardOn={mugshotBoardOn}
+        onToggleBoard={() => setMugshotBoardOn((v) => !v)}
+        intervalS={mugshotIntervalS}
+        onChangeInterval={updateMugshotInterval}
       />
     </div>
   );

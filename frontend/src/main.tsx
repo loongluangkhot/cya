@@ -2,6 +2,7 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { BrowserRouter } from 'react-router-dom';
 import App from './App';
+import { loadIdentity } from './identity';
 import { applyTheme, loadTheme } from './themes';
 import './styles/app.css';
 
@@ -24,6 +25,30 @@ applyTheme(loadTheme());
     // ignore — private mode etc.
   }
 })();
+
+// Identity migration: a pre-clientId record gets a clientId minted +
+// persisted *before* any React component reads it. Without this, each
+// component (App's useStoredState, RoomEntry's loadIdentity) would
+// independently mint a different clientId on each render — defeating
+// the entire reconnect-grace mechanism for upgraded users.
+loadIdentity();
+
+// Service worker for Web Push. Registered in both dev and prod — our
+// SW doesn't cache anything (push handler only), so the usual "stale
+// asset" worry from caching SWs doesn't apply. Scope is explicit so
+// it isn't silently broken if the app ever moves to a subpath. If
+// registration fails (e.g. file 404, http-not-https in some setups),
+// the app falls back to the in-tab Notification API path.
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker
+      .register('/sw.js', { scope: '/' })
+      .catch(() => {
+        // Non-fatal — useMessageNotifications detects this and uses
+        // the in-tab fallback instead.
+      });
+  });
+}
 
 const root = document.getElementById('root');
 if (!root) throw new Error('root element not found');
