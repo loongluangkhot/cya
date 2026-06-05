@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import Body, HTTPException, Response
+from fastapi import HTTPException, Response
 
 from app import fastapi_app
 from config import VAPID_PUBLIC_KEY, YT_EXAMPLES
@@ -70,41 +70,13 @@ async def get_vapid_public_key_endpoint() -> dict[str, str]:
     """Public VAPID key as raw base64-url-safe string. The client
     converts it to a Uint8Array before calling pushManager.subscribe.
     Empty string means push is not configured on this server — the
-    client treats this as "background notifications unavailable"."""
+    client treats this as "background notifications unavailable".
+
+    Subscription registration itself is a socket.io event (see
+    `subscribePush` / `unsubscribePush` in events.py) so the
+    clientId is authenticated via the socket session — a peer can't
+    forge another user's subscription via a public HTTP body."""
     return {"publicKey": VAPID_PUBLIC_KEY}
-
-
-@fastapi_app.post("/api/rooms/{room_id}/push/subscribe")
-async def push_subscribe_endpoint(
-    room_id: str, payload: dict[str, Any] = Body(...)
-) -> dict[str, bool]:
-    room = rooms.get(room_id)
-    if room is None:
-        raise HTTPException(status_code=404, detail={"ok": False})
-    client_id = str(payload.get("clientId") or "").strip()
-    subscription = payload.get("subscription")
-    if not client_id or not isinstance(subscription, dict):
-        raise HTTPException(status_code=400, detail={"ok": False})
-    if not isinstance(subscription.get("endpoint"), str):
-        raise HTTPException(status_code=400, detail={"ok": False})
-    # Idempotent: same clientId resubscribing replaces the previous
-    # subscription (the browser may rotate endpoints on permission resets).
-    room.push_subscriptions[client_id] = subscription
-    return {"ok": True}
-
-
-@fastapi_app.delete("/api/rooms/{room_id}/push/subscribe")
-async def push_unsubscribe_endpoint(
-    room_id: str, payload: dict[str, Any] = Body(...)
-) -> dict[str, bool]:
-    room = rooms.get(room_id)
-    if room is None:
-        raise HTTPException(status_code=404, detail={"ok": False})
-    client_id = str(payload.get("clientId") or "").strip()
-    if not client_id:
-        raise HTTPException(status_code=400, detail={"ok": False})
-    room.push_subscriptions.pop(client_id, None)
-    return {"ok": True}
 
 
 @fastapi_app.get("/api/rooms/{room_id}/mugshot/{user_id}")

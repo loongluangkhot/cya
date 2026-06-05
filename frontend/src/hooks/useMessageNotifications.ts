@@ -2,9 +2,9 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ensurePushSubscription,
   pushSupported,
-  registerSubscription,
-  unregisterSubscription,
+  releaseBrowserSubscription,
 } from '../push';
+import { socket } from '../socket';
 import type { ChatMessage } from '../types';
 import { formatVoiceDuration } from './useRoomState';
 import { useStoredState } from './useStoredState';
@@ -131,33 +131,63 @@ export function useMessageNotifications({
     };
   }, [enabledPref]);
 
-  // Push subscription lifecycle. The server's POST is idempotent so
-  // we can be sloppy about re-registering. Sets hasPushSub on success
-  // so the in-tab fallback knows to step aside for the hidden-tab case.
+  // Push subscription lifecycle.
+  //
+  // Two correctness concerns this handles:
+  // 1. Toggle-off race: a user can flip pref off while a registerPush
+  //    is in flight. We serialize through a single promise chain so
+  //    the unregister can't lose to a late register.
+  // 2. Cross-room leak: on hook unmount or roomId change, the previous
+  //    room's backend subscription needs to be dropped — otherwise the
+  //    user keeps getting pushes for a room they've left until grace
+  //    cleanup. The effect's cleanup chains an `unsubscribePush` emit.
+  //
+  // Registration goes through socket.emit (authenticated by the
+  // session-bound clientId), not HTTP — so a peer can't forge another
+  // user's subscription.
+  const inflightRef = useRef<Promise<void>>(Promise.resolve());
+
   useEffect(() => {
     if (!clientId) return;
     let cancelled = false;
-    if (enabledPref && permission === 'granted' && pushFullySupported()) {
-      (async () => {
+    const want = enabledPref && permission === 'granted' && pushFullySupported();
+    inflightRef.current = inflightRef.current.then(async () => {
+      if (cancelled) return;
+      if (want) {
         const sub = await ensurePushSubscription();
         if (cancelled) return;
         if (sub) {
-          const ok = await registerSubscription(roomId, clientId, sub);
-          if (!cancelled) setHasPushSub(ok);
+          // Socket session ties this sub to the joined clientId; the
+          // backend's _authed_user(sid) handles the auth.
+          socket.emit(
+            'subscribePush',
+            sub.toJSON() as {
+              endpoint: string;
+              keys: { p256dh: string; auth: string };
+            },
+          );
+          setHasPushSub(true);
         } else {
           // VAPID not configured or browser refused — fall back to
           // in-tab notifications only.
-          if (!cancelled) setHasPushSub(false);
+          setHasPushSub(false);
         }
-      })();
-    } else if (!enabledPref || permission === 'denied') {
-      (async () => {
-        await unregisterSubscription(roomId, clientId);
-        if (!cancelled) setHasPushSub(false);
-      })();
-    }
+      } else {
+        // pref off, permission denied, or push unsupported. Tell the
+        // server to drop the sub; the browser-side release happens
+        // only on a hard opt-out (handled in toggle), not here, so we
+        // don't tear down the browser sub on a transient permission
+        // glitch.
+        socket.emit('unsubscribePush');
+        setHasPushSub(false);
+      }
+    });
     return () => {
       cancelled = true;
+      // On unmount or roomId change, drop the backend sub for the room
+      // we're leaving. Best-effort — server-side grace cleanup also
+      // covers any lost emit.
+      if (socket.connected) socket.emit('unsubscribePush');
     };
   }, [enabledPref, permission, roomId, clientId]);
 
@@ -225,6 +255,10 @@ export function useMessageNotifications({
     const effectivelyOn = enabledPref && perm === 'granted';
     if (effectivelyOn) {
       setEnabledPref(false);
+      // Hard opt-out: also release the browser PushSubscription so
+      // a future re-enable mints a fresh one (and the backend can't
+      // silently re-attach the previous endpoint).
+      void releaseBrowserSubscription();
       return;
     }
     if (perm === 'denied') {

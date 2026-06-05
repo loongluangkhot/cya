@@ -40,12 +40,27 @@ export function validateIdentity(parsed: unknown): Identity | null {
 }
 
 /** Read + validate the stored identity. Returns null if missing,
-    malformed, or storage is unavailable (private window etc.). */
+    malformed, or storage is unavailable (private window etc.).
+
+    Persists immediately when migration minted a fresh clientId so the
+    same browser keeps its identity across reloads — without this,
+    every refresh of a pre-clientId record would produce a new id and
+    defeat the entire reconnect-grace mechanism. */
 export function loadIdentity(): Identity | null {
   try {
     const raw = localStorage.getItem(ME_KEY);
     if (!raw) return null;
-    return validateIdentity(JSON.parse(raw));
+    const parsed: unknown = JSON.parse(raw);
+    const validated = validateIdentity(parsed);
+    if (!validated) return null;
+    const prevClientId =
+      parsed && typeof parsed === 'object'
+        ? (parsed as Partial<Identity>).clientId
+        : undefined;
+    if (prevClientId !== validated.clientId) {
+      saveIdentity(validated);
+    }
+    return validated;
   } catch {
     return null;
   }

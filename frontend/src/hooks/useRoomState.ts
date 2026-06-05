@@ -117,18 +117,41 @@ export function useRoomState({ onToast }: UseRoomStateOpts): UseRoomStateResult 
     | { event: 'chat'; payload: { text: string } }
     | { event: 'voiceMessage'; payload: { audio: ArrayBuffer; durationMs: number; mime: string } }
     | { event: 'submitMugshot'; payload: { image: ArrayBuffer; mime: string } };
+  // Hard cap so a long disconnect with voice/mugshot payloads (each up
+  // to a few MB) can't grow the heap without bound. We FIFO-drop on
+  // overflow — better to lose the oldest queued message than to OOM.
+  const MAX_PENDING_EMITS = 20;
   const pendingEmitsRef = useRef<QueuedEmit[]>([]);
 
   function dispatch(item: QueuedEmit) {
-    if (item.event === 'chat') socket.emit('chat', item.payload);
-    else if (item.event === 'voiceMessage') socket.emit('voiceMessage', item.payload);
-    else socket.emit('submitMugshot', item.payload);
+    switch (item.event) {
+      case 'chat':
+        socket.emit('chat', item.payload);
+        return;
+      case 'voiceMessage':
+        socket.emit('voiceMessage', item.payload);
+        return;
+      case 'submitMugshot':
+        socket.emit('submitMugshot', item.payload);
+        return;
+      default: {
+        // Exhaustiveness guard — adding a fourth QueuedEmit variant
+        // without a case here is a compile error instead of a silent
+        // misroute.
+        const _exhaustive: never = item;
+        void _exhaustive;
+      }
+    }
   }
 
   function queueOrEmit(item: QueuedEmit) {
     if (joinAckedRef.current && socket.connected) {
       dispatch(item);
       return;
+    }
+    if (pendingEmitsRef.current.length >= MAX_PENDING_EMITS) {
+      // FIFO-drop oldest so the queue stays bounded.
+      pendingEmitsRef.current.shift();
     }
     pendingEmitsRef.current.push(item);
   }

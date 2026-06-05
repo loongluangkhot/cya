@@ -2,8 +2,10 @@
 
 `pywebpush` is synchronous (uses `requests` under the hood), so calling
 it directly would block the event loop on every push. We wrap each call
-in `loop.run_in_executor` and gather the per-recipient calls — fire and
-log, never await in the request handler. Failed deliveries with a
+in `loop.run_in_executor` with an explicit timeout (otherwise requests
+inherits None and a hung endpoint pins an executor thread until the
+heat death of the universe) and gather the per-recipient calls — fire
+and log, never await in the request handler. Failed deliveries with a
 "gone" status (404 / 410) imply the subscription is stale; we drop it
 from the room so the next push doesn't bounce again.
 """
@@ -26,6 +28,17 @@ from models import Room
 
 log = logging.getLogger("cya.push")
 
+# Per-push HTTP timeout passed through to `requests` under pywebpush.
+# 10s is comfortable for healthy endpoints and bounded enough that a
+# slow/dead provider can't saturate the default ThreadPoolExecutor.
+_PUSH_TIMEOUT_S = 10
+
+# Strong refs to running fan-out tasks. CPython only weakly tracks
+# tasks created via create_task, so an unreferenced task may be GC'd
+# mid-await; we add to this set and discard via done_callback to keep
+# them alive for as long as they're running.
+_background_tasks: set[asyncio.Task[None]] = set()
+
 
 def _send_sync(subscription: dict[str, Any], payload: dict[str, Any]) -> None:
     """Synchronous push to a single subscription. Runs in a thread."""
@@ -34,6 +47,7 @@ def _send_sync(subscription: dict[str, Any], payload: dict[str, Any]) -> None:
         data=json.dumps(payload),
         vapid_private_key=VAPID_PRIVATE_KEY,
         vapid_claims={"sub": VAPID_CONTACT},
+        timeout=_PUSH_TIMEOUT_S,
     )
 
 
@@ -66,20 +80,32 @@ async def fan_out(
     """Push `payload` to every subscribed clientId in `target_cids` (or
     all subscribed clientIds if None). Safe to call from a socket
     handler — we never raise to the caller and never block on individual
-    sends. Wrap with `asyncio.create_task(fan_out(...))` if you want
-    true fire-and-forget; otherwise this returns once all delivery
-    attempts have settled."""
+    sends. Wrap with `spawn(fan_out(...))` if you want true
+    fire-and-forget; otherwise this returns once all delivery attempts
+    have settled."""
     if not PUSH_ENABLED:
         return
     targets = (
         target_cids if target_cids is not None else list(room.push_subscriptions.keys())
     )
-    coros: list[asyncio.Future[None] | asyncio.Task[None]] = []
+    # Pass raw coroutines (not create_task'd) to gather so a cancel of
+    # this fan_out propagates into the underlying _send_one awaits.
+    coros = []
     for cid in targets:
         sub = room.push_subscriptions.get(cid)
         if sub is None:
             continue
-        coros.append(asyncio.create_task(_send_one(room, cid, sub, payload)))
+        coros.append(_send_one(room, cid, sub, payload))
     if not coros:
         return
     await asyncio.gather(*coros, return_exceptions=True)
+
+
+def spawn(coro: "asyncio.coroutines.Coroutine[Any, Any, Any]") -> asyncio.Task[None]:
+    """create_task wrapper that strong-refs the task so the asyncio loop
+    can't GC it mid-flight. Callers should use this for fire-and-forget
+    fan_out scheduling instead of bare asyncio.create_task()."""
+    task: asyncio.Task[None] = asyncio.create_task(coro)
+    _background_tasks.add(task)
+    task.add_done_callback(_background_tasks.discard)
+    return task

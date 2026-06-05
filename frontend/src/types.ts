@@ -189,6 +189,12 @@ export interface ClientToServerEvents {
     mime: string;
   }) => void;
   updateMugshotInterval: (payload: { intervalS: number }) => void;
+  subscribePush: (payload: {
+    endpoint: string;
+    keys: { p256dh: string; auth: string };
+    expirationTime?: number | null;
+  }) => void;
+  unsubscribePush: () => void;
 }
 
 export interface ColorMap {

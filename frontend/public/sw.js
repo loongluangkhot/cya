@@ -18,6 +18,18 @@ self.addEventListener('activate', (e) => {
   e.waitUntil(self.clients.claim());
 });
 
+// Exact-segment match on the room path. Substring `url.includes` would
+// route a push for room "cat" to a tab on `/r/catalyst` and vice versa.
+function clientOnRoom(c, roomId) {
+  if (!roomId) return false;
+  try {
+    const pathname = new URL(c.url).pathname;
+    return pathname === `/r/${roomId}` || pathname.startsWith(`/r/${roomId}/`);
+  } catch (_) {
+    return false;
+  }
+}
+
 function buildTitle(data) {
   if (data.kind === 'message') return `${data.fromName || 'someone'} · ${data.roomId}`;
   if (data.kind === 'voice') return `${data.fromName || 'someone'} · ${data.roomId}`;
@@ -56,7 +68,7 @@ self.addEventListener('push', (event) => {
         includeUncontrolled: true,
       });
       const visibleOnRoom = matches.find(
-        (c) => c.visibilityState === 'visible' && c.url.includes(`/r/${roomId}`),
+        (c) => c.visibilityState === 'visible' && clientOnRoom(c, roomId),
       );
       if (visibleOnRoom) {
         // Hand off to the in-tab toast pipeline; don't fire an OS
@@ -79,7 +91,7 @@ self.addEventListener('notificationclick', (event) => {
         includeUncontrolled: true,
       });
       // Prefer focusing an existing tab on the same room.
-      const onRoom = matches.find((c) => roomId && c.url.includes(`/r/${roomId}`));
+      const onRoom = matches.find((c) => clientOnRoom(c, roomId));
       if (onRoom) {
         try {
           await onRoom.focus();

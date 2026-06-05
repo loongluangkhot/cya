@@ -1,6 +1,12 @@
 // Web Push client helpers. Wraps the browser's `pushManager` plumbing
 // (which uses raw Uint8Array keys and slightly clumsy promises) into a
 // shape the notifications hook can call without knowing the spec.
+//
+// Subscription *registration* on the backend is no longer in here —
+// that flows through the socket as an authed `subscribePush` event
+// (events.py), so a peer can't hijack another user's subscription
+// via a public HTTP body. This module just deals with the browser
+// PushSubscription object lifecycle.
 
 import { API_BASE } from './api';
 
@@ -26,22 +32,22 @@ export function pushSupported(): boolean {
   );
 }
 
-let cachedPublicKey: string | null | undefined; // undefined = unfetched
+// Only cache *successful* lookups. A 5xx / network failure / unset
+// VAPID_PUBLIC_KEY (empty string from server) all return null without
+// caching, so the next call retries — otherwise a single failure at
+// page load would leave push permanently disabled for the session.
+let cachedPublicKey: string | null = null;
 
 async function getVapidPublicKey(): Promise<string | null> {
-  if (cachedPublicKey !== undefined) return cachedPublicKey;
+  if (cachedPublicKey) return cachedPublicKey;
   try {
     const r = await fetch(`${API_BASE}/api/push/vapid-public-key`);
-    if (!r.ok) {
-      cachedPublicKey = null;
-      return null;
-    }
+    if (!r.ok) return null;
     const data = (await r.json()) as { publicKey?: string };
     const key = data.publicKey?.trim() || null;
-    cachedPublicKey = key;
+    if (key) cachedPublicKey = key;
     return key;
   } catch {
-    cachedPublicKey = null;
     return null;
   }
 }
@@ -70,46 +76,10 @@ export async function ensurePushSubscription(): Promise<PushSubscription | null>
   }
 }
 
-/** Register the subscription with the backend (per-room). Idempotent
- *  server-side. */
-export async function registerSubscription(
-  roomId: string,
-  clientId: string,
-  subscription: PushSubscription,
-): Promise<boolean> {
-  try {
-    const r = await fetch(
-      `${API_BASE}/api/rooms/${encodeURIComponent(roomId)}/push/subscribe`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ clientId, subscription: subscription.toJSON() }),
-      },
-    );
-    return r.ok;
-  } catch {
-    return false;
-  }
-}
-
-/** Tell the backend to drop the subscription (e.g. user opted out).
- *  Also unsubscribes the browser-side PushSubscription if present. */
-export async function unregisterSubscription(
-  roomId: string,
-  clientId: string,
-): Promise<void> {
-  try {
-    await fetch(
-      `${API_BASE}/api/rooms/${encodeURIComponent(roomId)}/push/subscribe`,
-      {
-        method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ clientId }),
-      },
-    );
-  } catch {
-    // ignore — server-side cleanup will happen on grace timeout anyway
-  }
+/** Release the browser-side PushSubscription. The backend record is
+ *  cleared separately via the socket `unsubscribePush` event so the
+ *  drop is authenticated. */
+export async function releaseBrowserSubscription(): Promise<void> {
   if (!pushSupported()) return;
   try {
     const reg = await navigator.serviceWorker.ready;

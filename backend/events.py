@@ -52,6 +52,7 @@ from payloads import (
     PlayCollectionPayload,
     RemoveFromQueuePayload,
     SubmitMugshotPayload,
+    SubscribePushPayload,
     UpdateAmbientPayload,
     UpdateCharacterPayload,
     UpdateColorPayload,
@@ -147,12 +148,19 @@ async def _cleanup_user_later(room: Room, cid: str, seq: int) -> None:
     """Fired USER_GRACE_S after the last sid for `cid` disconnects.
     Re-validates `reconnect_seq` inside the room lock before mutating
     — so a late reconnect's `cancel()` racing with our wakeup is a
-    benign no-op rather than a double-eviction or zombie user."""
+    benign no-op rather than a double-eviction or zombie user.
+
+    The `sio.emit('userLeft', ...)` happens *inside* the lock too: if
+    it lived outside, a reconnect could squeeze in between the pop and
+    the emit, peers would see a stale userLeft for the just-rejoined
+    user and remove them from their lists. Sending under the lock
+    serializes against on_join's userJoined emit, so peers always see
+    a consistent userLeft → userJoined ordering."""
     try:
         await asyncio.sleep(USER_GRACE_S)
     except asyncio.CancelledError:
         return
-    user: User | None
+    schedule_eviction_after = False
     async with room.lock:
         # The user reconnected during the sleep — bail.
         if room.reconnect_seq.get(cid) != seq:
@@ -165,12 +173,13 @@ async def _cleanup_user_later(room: Room, cid: str, seq: int) -> None:
         room.mugshots.pop(cid, None)
         room.pending_user_cleanups.pop(cid, None)
         room.push_subscriptions.pop(cid, None)
-    if user is None:
-        return
-    # Emits + room-eviction scheduling happen outside the lock to keep
-    # critical section short.
-    await sio.emit("userLeft", {"id": cid}, room=room.id)
-    if not any(sids for sids in room.client_to_sids.values()):
+        if user is None:
+            return
+        await sio.emit("userLeft", {"id": cid}, room=room.id)
+        schedule_eviction_after = not any(
+            sids for sids in room.client_to_sids.values()
+        )
+    if schedule_eviction_after:
         schedule_eviction(room.id)
 
 
@@ -262,6 +271,9 @@ async def on_join(sid: str, payload: JoinPayload) -> dict[str, Any]:
 
     is_reconnect = False
     user: User
+    # Identity fields that changed on a reconnect; emitted to peers
+    # outside the lock so they don't keep displaying stale name/etc.
+    identity_diff: dict[str, str] = {}
     async with room.lock:
         await sio.save_session(sid, {"roomId": room.id, "clientId": cid})
         await sio.enter_room(sid, room.id)
@@ -272,10 +284,18 @@ async def on_join(sid: str, payload: JoinPayload) -> dict[str, Any]:
             # may have updated their name/avatar on another tab).
             is_reconnect = True
             user = room.users[cid]
-            user.name = safe_name
-            user.character = safe_char
-            user.color = safe_color
-            user.memo = safe_memo
+            if user.name != safe_name:
+                identity_diff["name"] = safe_name
+                user.name = safe_name
+            if user.character != safe_char:
+                identity_diff["character"] = safe_char
+                user.character = safe_char
+            if user.color != safe_color:
+                identity_diff["color"] = safe_color
+                user.color = safe_color
+            if user.memo != safe_memo:
+                identity_diff["memo"] = safe_memo
+                user.memo = safe_memo
             # Cancel any pending grace cleanup; re-validation inside the
             # task is the real authoritative check.
             pending = room.pending_user_cleanups.pop(cid, None)
@@ -313,6 +333,15 @@ async def on_join(sid: str, payload: JoinPayload) -> dict[str, Any]:
         # Reconnects skip this — their previous mugshot is still on file.
         if cid not in room.mugshots:
             await sio.emit("mugshotPrompt", {"nextAt": room.next_mugshot_at}, to=sid)
+    elif identity_diff:
+        # Reconnect with edits — peers need to know so they don't keep
+        # showing the old name / avatar / memo.
+        await sio.emit(
+            "userUpdated",
+            {"id": cid, **identity_diff},
+            room=room.id,
+            skip_sid=sid,
+        )
     return {"ok": True}
 
 
@@ -613,18 +642,22 @@ async def on_chat(sid: str, payload: ChatPayload) -> None:
     room.messages.append(message)
     trim_history(room)
     await sio.emit("chatMessage", asdict(message), room=room.id)
-    # Background push to away peers. SW will route to in-app toast for
-    # any tab that's visible-on-this-room, so duplication is benign;
-    # filtering by `status == away` here just saves push traffic.
+    # Background push to away peers. We compute status fresh from
+    # sid_visible rather than read the cached `u.status` field — the
+    # cached value is updated outside room.lock and can lag a visibility
+    # transition by a tick, which would silently skip a push to a user
+    # who just backgrounded their tab. The SW additionally routes to
+    # in-app toast for visible-on-this-room tabs, so duplication is
+    # benign; the filter here just saves push traffic.
     away_cids = [
-        u.id
-        for u in room.users.values()
-        if u.id != user.id
-        and u.status == "away"
-        and u.id in room.push_subscriptions
+        cid
+        for cid in room.users
+        if cid != user.id
+        and _aggregate_status(room, cid) == "away"
+        and cid in room.push_subscriptions
     ]
     if away_cids:
-        asyncio.create_task(
+        push.spawn(
             push.fan_out(
                 room,
                 {
@@ -678,14 +711,14 @@ async def on_voice_message(sid: str, payload: Mapping[str, Any]) -> None:
         await sio.emit("audioExpired", {"ids": expired_ids}, room=room.id)
     await sio.emit("chatMessage", asdict(message), room=room.id)
     away_cids = [
-        u.id
-        for u in room.users.values()
-        if u.id != user.id
-        and u.status == "away"
-        and u.id in room.push_subscriptions
+        cid
+        for cid in room.users
+        if cid != user.id
+        and _aggregate_status(room, cid) == "away"
+        and cid in room.push_subscriptions
     ]
     if away_cids:
-        asyncio.create_task(
+        push.spawn(
             push.fan_out(
                 room,
                 {
@@ -753,3 +786,45 @@ async def on_update_mugshot_interval(
         {"intervalS": new_s, "nextAt": room.next_mugshot_at},
         room=room.id,
     )
+
+
+# ───────────────── Push subscriptions ─────────────────
+
+
+def _is_valid_push_subscription(sub: object) -> bool:
+    """Browser PushSubscriptions have endpoint:str + keys:{p256dh, auth}.
+    Reject any payload missing the cryptographic keys — pywebpush would
+    raise at send time, but the error path doesn't drop the bad sub
+    (only WebPushException 404/410 does), so bad subs accumulate."""
+    if not isinstance(sub, dict):
+        return False
+    endpoint = sub.get("endpoint")
+    keys = sub.get("keys")
+    if not isinstance(endpoint, str) or not endpoint.startswith("https://"):
+        return False
+    if not isinstance(keys, dict):
+        return False
+    return isinstance(keys.get("p256dh"), str) and isinstance(keys.get("auth"), str)
+
+
+@sio.on("subscribePush")
+async def on_subscribe_push(sid: str, payload: SubscribePushPayload) -> None:
+    """Register a Web Push subscription against the caller's clientId.
+    Auth comes from the socket session (cid is bound at join), so a
+    peer can't hijack another user's subscription."""
+    pair = await _authed_user(sid)
+    if pair is None:
+        return
+    room, user = pair
+    if not _is_valid_push_subscription(payload):
+        return
+    room.push_subscriptions[user.id] = dict(payload)
+
+
+@sio.on("unsubscribePush")
+async def on_unsubscribe_push(sid: str, *_args: Any) -> None:
+    pair = await _authed_user(sid)
+    if pair is None:
+        return
+    room, user = pair
+    room.push_subscriptions.pop(user.id, None)

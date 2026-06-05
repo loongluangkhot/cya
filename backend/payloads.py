@@ -34,6 +34,12 @@ class ClientVisibilityPayload(TypedDict, total=False):
     visible: bool
 
 
+class SubscribePushPayload(TypedDict, total=False):
+    """Browser PushSubscription serialised via `subscription.toJSON()`."""
+    endpoint: str
+    keys: dict[str, str]
+
+
 class MovePayload(TypedDict, total=False):
     x: float
     y: float

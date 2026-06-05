@@ -2,6 +2,7 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { BrowserRouter } from 'react-router-dom';
 import App from './App';
+import { loadIdentity } from './identity';
 import { applyTheme, loadTheme } from './themes';
 import './styles/app.css';
 
@@ -24,6 +25,13 @@ applyTheme(loadTheme());
     // ignore — private mode etc.
   }
 })();
+
+// Identity migration: a pre-clientId record gets a clientId minted +
+// persisted *before* any React component reads it. Without this, each
+// component (App's useStoredState, RoomEntry's loadIdentity) would
+// independently mint a different clientId on each render — defeating
+// the entire reconnect-grace mechanism for upgraded users.
+loadIdentity();
 
 // Service worker for Web Push. Registered in both dev and prod — our
 // SW doesn't cache anything (push handler only), so the usual "stale
