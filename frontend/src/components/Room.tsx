@@ -6,7 +6,7 @@ import { IrcLog } from './room/IrcLog';
 import { MugshotBoard } from './room/MugshotBoard';
 import { RoomDock } from './room/RoomDock';
 import { RoomTopBar } from './room/RoomTopBar';
-import { RoomVideo, type RoomPlacement } from './room/RoomVideo';
+import { RoomVideo } from './room/RoomVideo';
 import { Toasts } from './room/Toasts';
 import { AmbienceSheet } from './sheets/AmbienceSheet';
 import { ChatLogSheet } from './sheets/ChatLogSheet';
@@ -45,15 +45,15 @@ type SheetId =
   | null;
 
 const PLAYER_MODE_KEY = 'cya:yt:mode:v1';
-const ROOM_PLACEMENT_KEY = 'cya:yt:room:v1';
+const YT_POPUP_KEY = 'cya:yt:popup:v1';
 const MUG_OPT_IN_KEY = 'cya:mug:opt-in:v1';
-const MUG_BOARD_ON_KEY = 'cya:mug:board:v1';
+const MUG_POPUP_KEY = 'cya:mug:popup:v1';
 
 function validatePlayerMode(v: unknown): PlayerMode | null {
   return v === 'theater' || v === 'audio' ? v : null;
 }
-function validateRoomPlacement(v: unknown): RoomPlacement | null {
-  return v === 'corner' || v === 'wall' || v === 'off' ? v : null;
+function validateBool(v: unknown): boolean | null {
+  return typeof v === 'boolean' ? v : null;
 }
 
 export default function Room({ roomId, onEditMe, onLeave, onMemoPersist }: RoomProps) {
@@ -89,10 +89,10 @@ export default function Room({ roomId, onEditMe, onLeave, onMemoPersist }: RoomP
   const { nudge, wandering, setWandering } = useMovement({ meId, users, setUsers });
 
   const [playerMode, setPlayerMode] = useStoredState<PlayerMode>(PLAYER_MODE_KEY, 'audio', validatePlayerMode);
-  const [roomPlacement, setRoomPlacement] = useStoredState<RoomPlacement>(
-    ROOM_PLACEMENT_KEY,
-    'corner',
-    validateRoomPlacement,
+  const [roomVideoOn, setRoomVideoOn] = useStoredState<boolean>(
+    YT_POPUP_KEY,
+    true,
+    validateBool,
   );
 
   const ytPlayer = useYoutubePlayer({
@@ -119,12 +119,12 @@ export default function Room({ roomId, onEditMe, onLeave, onMemoPersist }: RoomP
   const [mugshotOptIn, setMugshotOptIn] = useStoredState<boolean>(
     MUG_OPT_IN_KEY,
     true,
-    (v) => (typeof v === 'boolean' ? v : null),
+    validateBool,
   );
   const [mugshotBoardOn, setMugshotBoardOn] = useStoredState<boolean>(
-    MUG_BOARD_ON_KEY,
+    MUG_POPUP_KEY,
     true,
-    (v) => (typeof v === 'boolean' ? v : null),
+    validateBool,
   );
 
   useMugshotPrompt({
@@ -141,21 +141,13 @@ export default function Room({ roomId, onEditMe, onLeave, onMemoPersist }: RoomP
   const roomStageRef = useRef<HTMLDivElement | null>(null);
   const audioHostRef = useRef<HTMLDivElement | null>(null);
 
-  // Remember the last non-off placement so the music sheet's popup
-  // toggle can restore it. ('wall' is reachable via stored prefs only;
-  // we never set it from the UI today.)
-  const lastVisiblePlacementRef = useRef<RoomPlacement>('corner');
-  useEffect(() => {
-    if (roomPlacement !== 'off') lastVisiblePlacementRef.current = roomPlacement;
-  }, [roomPlacement]);
   function toggleRoomVideo() {
-    if (roomPlacement === 'off') setRoomPlacement(lastVisiblePlacementRef.current);
-    else setRoomPlacement('off');
+    setRoomVideoOn((v) => !v);
   }
 
   // Decide which surface the player mounts into. Priority:
-  // audio-only → hidden host; music sheet open → sheet; else if room
-  // placement is on → room video; else → hidden host (audio keeps going).
+  // audio-only → hidden host; music sheet open → sheet; else if the
+  // in-room popup is on → room video; else → hidden host (audio keeps going).
   // startAt extrapolates the room's last reported position by the time
   // elapsed since that report, so a new joiner drops in mid-track.
   useEffect(() => {
@@ -166,7 +158,7 @@ export default function Room({ roomId, onEditMe, onLeave, onMemoPersist }: RoomP
     let container: HTMLElement | null;
     if (playerMode === 'audio') container = audioHostRef.current;
     else if (sheet === 'music') container = sheetStageRef.current;
-    else if (roomPlacement !== 'off') container = roomStageRef.current;
+    else if (roomVideoOn) container = roomStageRef.current;
     else container = audioHostRef.current;
     if (!container) return;
     const elapsedMs = playback.isPlaying
@@ -179,7 +171,7 @@ export default function Room({ roomId, onEditMe, onLeave, onMemoPersist }: RoomP
       playing: playback.isPlaying,
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ytPlayer.enabled, playback.trackUri, playerMode, sheet, roomPlacement]);
+  }, [ytPlayer.enabled, playback.trackUri, playerMode, sheet, roomVideoOn]);
 
   function onSend(text: string) {
     if (!text.trim()) return;
@@ -231,7 +223,7 @@ export default function Room({ roomId, onEditMe, onLeave, onMemoPersist }: RoomP
     ytPlayer.enabled &&
     !!playback.trackUri &&
     sheet !== 'music' &&
-    roomPlacement !== 'off';
+    roomVideoOn;
 
   return (
     <div className="room-root">
@@ -256,7 +248,6 @@ export default function Room({ roomId, onEditMe, onLeave, onMemoPersist }: RoomP
         {showRoomVideo && playback.trackUri && (
           <RoomVideo
             trackId={playback.trackUri}
-            placement={roomPlacement === 'wall' ? 'wall' : 'corner'}
             audioOnly={playerMode === 'audio'}
             isPlaying={playback.isPlaying}
             hasQueue={queue.length > 0}
@@ -264,7 +255,7 @@ export default function Room({ roomId, onEditMe, onLeave, onMemoPersist }: RoomP
             onOpen={() => setSheet('music')}
             onTogglePlay={dockTogglePlay}
             onNext={dockNext}
-            onClose={() => setRoomPlacement('off')}
+            onClose={() => setRoomVideoOn(false)}
           />
         )}
 
@@ -366,7 +357,7 @@ export default function Room({ roomId, onEditMe, onLeave, onMemoPersist }: RoomP
         onRemoveFromQueue={removeFromQueue}
         onClearQueue={clearQueue}
         onExpandPlaylist={expandPlaylist}
-        roomVideoOn={roomPlacement !== 'off'}
+        roomVideoOn={roomVideoOn}
         onToggleRoomVideo={toggleRoomVideo}
       />
       <AmbienceSheet

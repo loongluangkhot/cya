@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { PlaybackState } from '../types';
 import { loadYouTubeApi, type YTNamespace, type YTPlayer } from '../youtubeIframeApi';
+import { useStoredState } from './useStoredState';
+
+const OPT_IN_KEY = 'cya:yt:opt-in:v1';
 
 export type PlayerStatus = 'idle' | 'loading' | 'ready' | 'error';
 
@@ -42,7 +45,11 @@ interface UseYoutubePlayerOpts {
 const SEEK_THRESHOLD_SEC = 2;
 
 export function useYoutubePlayer({ playback, onEnded }: UseYoutubePlayerOpts): UseYoutubePlayerResult {
-  const [enabled, setEnabled] = useState(false);
+  const [enabled, setEnabled] = useStoredState<boolean>(
+    OPT_IN_KEY,
+    true,
+    (v) => (typeof v === 'boolean' ? v : null),
+  );
   const [status, setStatus] = useState<PlayerStatus>('idle');
   const [currentSec, setCurrentSec] = useState(0);
   const [durationSec, setDurationSec] = useState(0);

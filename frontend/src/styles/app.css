@@ -2599,15 +2599,9 @@ input, textarea, select { font-size: 16px; }
   box-shadow: var(--shadow-hard);
   display: flex;
   flex-direction: column;
+  left: var(--hud-pad);
+  top: 64px;
 }
-.room-video.corner { left: var(--hud-pad); top: 64px; width: 212px; }
-.room-video.wall {
-  left: 50%;
-  transform: translateX(-50%);
-  top: 13%;
-  width: min(340px, 72vw);
-}
-.room-video.is-audio.corner { width: 212px; }
 .room-video-frame {
   width: 100%;
   aspect-ratio: 16 / 9;
@@ -2739,8 +2733,8 @@ input, textarea, select { font-size: 16px; }
 }
 .mug-thumb img {
   display: block;
-  width: 92px;
-  height: 92px;
+  width: var(--mug-thumb-size, 92px);
+  height: var(--mug-thumb-size, 92px);
   object-fit: cover;
   background: var(--surface-2);
   user-select: none;
@@ -2757,7 +2751,7 @@ input, textarea, select { font-size: 16px; }
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  max-width: 92px;
+  max-width: var(--mug-thumb-size, 92px);
 }
 .mug-empty {
   font-family: var(--font-body);
