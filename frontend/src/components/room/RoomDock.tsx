@@ -26,6 +26,9 @@ interface RoomDockProps {
   /** ms timestamp of the next scheduled mugshot prompt. */
   mugshotNextAt: number;
   mugshotIntervalS: number;
+  marqueeOptIn: boolean;
+  marqueeStripOn: boolean;
+  onOpenMarquee: () => void;
 }
 
 function ambientGlyph(a: Ambient): string {
@@ -164,6 +167,9 @@ export function RoomDock({
   onOpenMugshot,
   mugshotNextAt,
   mugshotIntervalS,
+  marqueeOptIn,
+  marqueeStripOn,
+  onOpenMarquee,
 }: RoomDockProps) {
   const showTrack = musicEnabled && !!playback.trackUri;
   const recorder = useVoiceRecorder();
@@ -233,6 +239,21 @@ export function RoomDock({
           intervalS={mugshotIntervalS}
           onOpen={onOpenMugshot}
         />
+        <button
+          type="button"
+          className={`dock-glyph${marqueeOptIn && marqueeStripOn ? ' is-active' : ''}${!marqueeOptIn ? ' is-off' : ''}`}
+          onClick={onOpenMarquee}
+          aria-label={marqueeOptIn ? 'marquee' : 'marquee · off'}
+          title={
+            marqueeOptIn
+              ? marqueeStripOn
+                ? 'marquee · on'
+                : 'marquee · strip hidden'
+              : 'marquee · off'
+          }
+        >
+          <Icon name="marquee" size={16} />
+        </button>
       </div>
 
       {/* Now-playing ticker — only visible when music is playing. Keeps

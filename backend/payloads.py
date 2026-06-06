@@ -109,6 +109,14 @@ class UpdateMugshotIntervalPayload(TypedDict, total=False):
     intervalS: int
 
 
+class AddMarqueeFeedPayload(TypedDict, total=False):
+    url: str
+
+
+class RemoveMarqueeFeedPayload(TypedDict, total=False):
+    url: str
+
+
 # Outgoing wire shape — emitted in `state` and `playbackChanged`.
 # @sync: frontend/src/types.ts:PlaybackState
 class PlaybackSnapshot(TypedDict):

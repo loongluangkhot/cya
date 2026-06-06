@@ -21,7 +21,9 @@ interface IconProps {
     | 'list'
     | 'screen'
     | 'grip'
-    | 'yt';
+    | 'yt'
+    | 'marquee'
+    | 'link';
   size?: number;
   color?: string;
 }
@@ -193,6 +195,28 @@ export default function Icon({ name, size = 18, color = 'currentColor' }: IconPr
       return (
         <svg width={size} height={size} viewBox="0 0 24 24" fill={color} stroke="none">
           <path d="M21.6 7.2a2.6 2.6 0 0 0-1.8-1.8C18 5 12 5 12 5s-6 0-7.8.4A2.6 2.6 0 0 0 2.4 7.2 27 27 0 0 0 2 12a27 27 0 0 0 .4 4.8 2.6 2.6 0 0 0 1.8 1.8C6 19 12 19 12 19s6 0 7.8-.4a2.6 2.6 0 0 0 1.8-1.8A27 27 0 0 0 22 12a27 27 0 0 0-.4-4.8zM10 15V9l5 3z" />
+        </svg>
+      );
+    case 'marquee':
+      // Rounded rectangle frame (the strip) with two rows of segmented
+      // dashes inside, offset between rows so the eye reads "scrolling
+      // text" rather than just "list."
+      return (
+        <svg {...common}>
+          <rect x="3" y="8" width="18" height="8" rx="1.2" />
+          <path d="M6 11h6" />
+          <path d="M14 11h4" />
+          <path d="M6 13.5h4" />
+          <path d="M12 13.5h7" />
+        </svg>
+      );
+    case 'link':
+      // Two interlocking chain-link capsules at 45°. Same construction
+      // as Feather/Lucide's "link" — reads instantly as a URL.
+      return (
+        <svg {...common}>
+          <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+          <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
         </svg>
       );
     default:

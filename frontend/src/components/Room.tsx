@@ -3,6 +3,7 @@ import IsoScene from './IsoScene';
 import { AmbienceOverlay } from './room/AmbienceOverlay';
 import { DPad } from './room/DPad';
 import { IrcLog } from './room/IrcLog';
+import { MarqueeStrip } from './room/MarqueeStrip';
 import { MugshotBoard } from './room/MugshotBoard';
 import { RoomDock } from './room/RoomDock';
 import { RoomTopBar } from './room/RoomTopBar';
@@ -10,12 +11,14 @@ import { RoomVideo } from './room/RoomVideo';
 import { Toasts } from './room/Toasts';
 import { AmbienceSheet } from './sheets/AmbienceSheet';
 import { ChatLogSheet } from './sheets/ChatLogSheet';
+import { MarqueeSheet } from './sheets/MarqueeSheet';
 import { MemoEditorSheet } from './sheets/MemoEditorSheet';
 import { MindsSheet } from './sheets/MindsSheet';
 import { MugshotSheet } from './sheets/MugshotSheet';
 import { MusicSheet, type PlayerMode } from './sheets/MusicSheet';
 import { PeopleSheet } from './sheets/PeopleSheet';
 import { SettingsSheet } from './sheets/SettingsSheet';
+import { useMarquee } from '../hooks/useMarquee';
 import { useMessageNotifications } from '../hooks/useMessageNotifications';
 import { useMovement } from '../hooks/useMovement';
 import { useMugshotPrompt } from '../hooks/useMugshotPrompt';
@@ -42,6 +45,7 @@ type SheetId =
   | 'memo-editor'
   | 'settings'
   | 'mugshot'
+  | 'marquee'
   | null;
 
 const PLAYER_MODE_KEY = 'cya:yt:mode:v1';
@@ -85,6 +89,10 @@ export default function Room({ roomId, onEditMe, onLeave, onMemoPersist }: RoomP
     clearQueue,
     submitMugshot,
     updateMugshotInterval,
+    roomMarqueeFeeds,
+    roomMarqueeItems,
+    addMarqueeFeed,
+    removeMarqueeFeed,
   } = useRoomState({ onToast: pushToast });
   const { nudge, wandering, setWandering } = useMovement({ meId, users, setUsers });
 
@@ -134,6 +142,9 @@ export default function Room({ roomId, onEditMe, onLeave, onMemoPersist }: RoomP
     onToast: pushToast,
     onOpenCapture: () => setSheet('mugshot'),
   });
+
+  const marquee = useMarquee({ roomMarqueeFeeds, roomMarqueeItems });
+  const [marqueeArticleId, setMarqueeArticleId] = useState<string | null>(null);
 
   // Player stays mounted across sheet open/close — we move it between
   // surfaces (music sheet stage, in-room video, hidden audio host).
@@ -284,6 +295,17 @@ export default function Room({ roomId, onEditMe, onLeave, onMemoPersist }: RoomP
           onLeave={onLeave}
         />
 
+        {marquee.optIn && marquee.stripOn && marquee.mergedItems.length > 0 && (
+          <MarqueeStrip
+            items={marquee.mergedItems}
+            feedTitle={marquee.feedTitle}
+            onOpenArticle={(id) => {
+              setMarqueeArticleId(id);
+              setSheet('marquee');
+            }}
+          />
+        )}
+
         <IrcLog messages={messages} peersById={peersById} roomId={roomId} />
 
         {mugshotOptIn && mugshotBoardOn && (
@@ -316,6 +338,12 @@ export default function Room({ roomId, onEditMe, onLeave, onMemoPersist }: RoomP
         onOpenMugshot={() => setSheet('mugshot')}
         mugshotNextAt={nextMugshotAt}
         mugshotIntervalS={mugshotIntervalS}
+        marqueeOptIn={marquee.optIn}
+        marqueeStripOn={marquee.stripOn}
+        onOpenMarquee={() => {
+          setMarqueeArticleId(null);
+          setSheet('marquee');
+        }}
       />
 
       <Toasts items={toasts} />
@@ -404,6 +432,30 @@ export default function Room({ roomId, onEditMe, onLeave, onMemoPersist }: RoomP
         onToggleBoard={() => setMugshotBoardOn((v) => !v)}
         intervalS={mugshotIntervalS}
         onChangeInterval={updateMugshotInterval}
+      />
+      <MarqueeSheet
+        open={sheet === 'marquee'}
+        onClose={() => {
+          setSheet(null);
+          setMarqueeArticleId(null);
+        }}
+        optIn={marquee.optIn}
+        onToggleOptIn={() => marquee.setOptIn((v) => !v)}
+        stripOn={marquee.stripOn}
+        onToggleStrip={() => marquee.setStripOn((v) => !v)}
+        roomFeeds={marquee.roomFeeds}
+        userFeeds={marquee.userFeeds}
+        mutedSources={marquee.mutedSources}
+        onToggleMute={marquee.toggleMute}
+        onAddRoomFeed={addMarqueeFeed}
+        onRemoveRoomFeed={removeMarqueeFeed}
+        onAddUserFeed={marquee.addUserFeed}
+        onRemoveUserFeed={marquee.removeUserFeed}
+        mergedItems={marquee.mergedItems}
+        articleId={marqueeArticleId}
+        onOpenArticle={setMarqueeArticleId}
+        onCloseArticle={() => setMarqueeArticleId(null)}
+        feedTitle={marquee.feedTitle}
       />
     </div>
   );

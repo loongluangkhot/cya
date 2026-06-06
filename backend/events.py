@@ -20,6 +20,7 @@ from audio import enforce_audio_cap, trim_history
 from config import (
     ALLOWED_MUGSHOT_MIMES,
     ALLOWED_VOICE_MIMES,
+    MARQUEE_FEED_MAX_PER_ROOM,
     MAX_VOICE_BYTES,
     MAX_VOICE_DURATION_MS,
     MEMO_MAX,
@@ -34,7 +35,8 @@ from config import (
     ROOM_WIDTH,
     USER_GRACE_S,
 )
-from models import ChatMessage, MugshotBlob, Room, User
+from models import ChatMessage, MarqueeFeed, MugshotBlob, Room, User
+import marquee
 import mugshots
 import push
 from payloads import (
@@ -42,6 +44,7 @@ from payloads import (
     AMBIENT_TIMES,
     AMBIENT_WEATHERS,
     AddManyToQueuePayload,
+    AddMarqueeFeedPayload,
     AddToQueuePayload,
     AdvanceQueuePayload,
     ChatPayload,
@@ -51,6 +54,7 @@ from payloads import (
     PlaybackSnapshot,
     PlayCollectionPayload,
     RemoveFromQueuePayload,
+    RemoveMarqueeFeedPayload,
     SubmitMugshotPayload,
     SubscribePushPayload,
     UpdateAmbientPayload,
@@ -210,6 +214,11 @@ def _state_snapshot(room: Room, user: User) -> dict[str, Any]:
         # fetched lazily over HTTP at /api/rooms/{room}/mugshot/{user},
         # cache-busted by the takenAt query param.
         "mugshotsTakenAt": {uid: m.taken_at for uid, m in room.mugshots.items()},
+        "marqueeFeeds": [asdict(f) for f in room.marquee_feeds],
+        "marqueeItems": {
+            url: [asdict(i) for i in items]
+            for url, items in room.marquee_items.items()
+        },
     }
 
 
@@ -828,3 +837,74 @@ async def on_unsubscribe_push(sid: str, *_args: Any) -> None:
         return
     room, user = pair
     room.push_subscriptions.pop(user.id, None)
+
+
+# ───────────────── Marquee ─────────────────
+
+
+def _marquee_feeds_payload(room: Room) -> dict[str, Any]:
+    return {"feeds": [asdict(f) for f in room.marquee_feeds]}
+
+
+@sio.on("addMarqueeFeed")
+async def on_add_marquee_feed(sid: str, payload: AddMarqueeFeedPayload) -> None:
+    pair = await _authed_user(sid)
+    if pair is None:
+        return
+    room, user = pair
+    url = marquee.validate_feed_url(safe_string(payload, "url", max_len=600, strip=True))
+    if not url:
+        return
+    # Idempotent — silently no-op on duplicate so the client can stay
+    # source-of-truth without having to dedupe locally.
+    if any(f.url == url for f in room.marquee_feeds):
+        return
+    if len(room.marquee_feeds) >= MARQUEE_FEED_MAX_PER_ROOM:
+        return
+    # Try resolving the title up-front so peers see a real name instead
+    # of an empty string while the loop catches up. fetch() never raises.
+    entry = await marquee.fetch(url)
+    room.marquee_feeds.append(
+        MarqueeFeed(url=url, title=entry.title or "", added_by=user.id)
+    )
+    if entry.items:
+        room.marquee_items[url] = list(entry.items)
+    await sio.emit("marqueeFeedsChanged", _marquee_feeds_payload(room), room=room.id)
+    if entry.items:
+        await sio.emit(
+            "marqueeItemsChanged",
+            {"feedUrl": url, "items": marquee.items_payload(entry.items)},
+            room=room.id,
+        )
+    elif entry.error:
+        await sio.emit(
+            "marqueeFeedError",
+            {"feedUrl": url, "error": entry.error},
+            room=room.id,
+        )
+
+
+@sio.on("removeMarqueeFeed")
+async def on_remove_marquee_feed(sid: str, payload: RemoveMarqueeFeedPayload) -> None:
+    room = await _current_room(sid)
+    if room is None:
+        return
+    url = safe_string(payload, "url", max_len=600, strip=True)
+    if not url:
+        return
+    before = len(room.marquee_feeds)
+    room.marquee_feeds = [f for f in room.marquee_feeds if f.url != url]
+    if len(room.marquee_feeds) == before:
+        return
+    room.marquee_items.pop(url, None)
+    await sio.emit("marqueeFeedsChanged", _marquee_feeds_payload(room), room=room.id)
+
+
+@sio.on("requestMarqueeRefresh")
+async def on_request_marquee_refresh(sid: str, *_args: Any) -> None:
+    """Manual refresh of all room feeds. Fire-and-forget; the loop's
+    diff broadcast handles the user-visible update."""
+    room = await _current_room(sid)
+    if room is None:
+        return
+    asyncio.create_task(marquee.trigger_refresh(room.id))

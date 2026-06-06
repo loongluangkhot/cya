@@ -2854,3 +2854,314 @@ input, textarea, select { font-size: 16px; }
   font-size: 30px;
   line-height: 1;
 }
+
+/* ───────────── Marquee strip ───────────── */
+/* Fixed strip across the top of the room scene. Anchors under the
+   top bar (which is ~50px including its top safe-area padding) so the
+   slug/peer-count row stays readable above it. */
+.marquee-strip {
+  position: absolute;
+  top: calc(max(env(safe-area-inset-top, 12px), 12px) + 38px);
+  left: 0;
+  right: 0;
+  z-index: 110;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  background: rgba(0, 0, 0, 0.72);
+  color: #f3f3f3;
+  border-top: var(--border-w) solid var(--fg);
+  border-bottom: var(--border-w) solid var(--fg);
+  overflow: hidden;
+  cursor: grab;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: pan-y;
+}
+.marquee-strip.is-paused {
+  cursor: grabbing;
+  background: rgba(0, 0, 0, 0.85);
+}
+.marquee-strip-track {
+  display: flex;
+  flex-wrap: nowrap;
+  white-space: nowrap;
+  will-change: transform;
+  animation: marquee-strip-roll var(--marquee-duration, 60s) linear infinite;
+}
+.marquee-strip.is-paused .marquee-strip-track {
+  animation-play-state: paused;
+}
+@keyframes marquee-strip-roll {
+  from { transform: translateX(0); }
+  to   { transform: translateX(-50%); }
+}
+.marquee-strip-item {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  padding: 0 6px;
+  color: inherit;
+  font-family: var(--font-body);
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+}
+.marquee-strip-source {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #c8c8c8;
+}
+.marquee-strip-title {
+  color: #f5f5f5;
+}
+.marquee-strip-sep,
+.marquee-strip-gap {
+  color: #888;
+  padding: 0 4px;
+}
+.marquee-strip-gap {
+  padding-right: 18px;
+}
+
+/* ───────────── Marquee sheet ───────────── */
+.marquee-layout {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  height: 100%;
+  overflow-y: auto;
+}
+.marquee-section-label {
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-top: 4px;
+}
+.marquee-empty {
+  font-size: 12px;
+  color: var(--muted);
+  padding: 4px 0;
+}
+.marquee-sources {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.marquee-feed-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px;
+  border: var(--border-w) solid var(--scene-line);
+  background: var(--surface);
+}
+.marquee-feed-row.is-muted {
+  opacity: 0.55;
+}
+.marquee-feed-info {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.marquee-feed-title {
+  font-family: var(--font-body);
+  font-size: 13px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.marquee-feed-attr {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+.marquee-feed-url {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  margin-top: 1px;
+}
+.marquee-add {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+}
+.marquee-add-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+.marquee-add-target {
+  display: flex;
+  gap: 4px;
+}
+/* Inline radio chooser for the room/yours target. Small dot + label per
+   option — universally reads as "pick one" and stays visually quiet next
+   to the "add feed" primary button. */
+.marquee-target {
+  display: inline-flex;
+  align-items: center;
+  gap: 14px;
+}
+.marquee-target-btn {
+  appearance: none;
+  cursor: pointer;
+  padding: 4px 0;
+  background: transparent;
+  border: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  transition: color 0.12s ease;
+}
+.marquee-target-btn:hover {
+  color: var(--fg);
+}
+.marquee-target-btn.selected {
+  color: var(--fg);
+}
+.marquee-target-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  border: 1.5px solid currentColor;
+  display: inline-block;
+  position: relative;
+  box-sizing: border-box;
+  flex: 0 0 auto;
+}
+.marquee-target-btn.selected .marquee-target-dot::after {
+  content: '';
+  position: absolute;
+  inset: 1.5px;
+  background: currentColor;
+  border-radius: 50%;
+}
+/* Strip the hard offset-rectangle shadow off the ADD FEED submit to
+   match the flat look of the music sheet's SEARCH button. Matches
+   .dial-btn.selected's specificity (0,2,0) so the override wins. */
+.dial-btn.marquee-add-submit {
+  box-shadow: none;
+}
+.marquee-headlines {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.marquee-headline-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.marquee-headline {
+  appearance: none;
+  background: var(--surface);
+  border: var(--border-w) solid var(--scene-line);
+  text-align: left;
+  padding: 8px 10px;
+  width: 100%;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  color: inherit;
+}
+.marquee-headline:hover {
+  border-color: var(--fg);
+}
+.marquee-headline-title {
+  font-family: var(--font-body);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.25;
+}
+.marquee-headline-meta {
+  display: flex;
+  gap: 8px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+}
+.marquee-headline-source {
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.marquee-article {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 4px 0 12px;
+}
+.marquee-back {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  padding: 4px 0;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  cursor: pointer;
+  align-self: flex-start;
+}
+.marquee-back:hover {
+  color: var(--fg);
+}
+.marquee-article-source {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+}
+.marquee-article-title {
+  font-family: var(--font-display);
+  font-size: 18px;
+  font-weight: var(--display-weight);
+  line-height: 1.25;
+}
+.marquee-article-date {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+.marquee-article-body {
+  font-family: var(--font-body);
+  font-size: 13px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+.marquee-article-link {
+  align-self: flex-start;
+  text-decoration: none;
+}

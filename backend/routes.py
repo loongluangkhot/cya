@@ -3,10 +3,12 @@
 
 from __future__ import annotations
 
+from dataclasses import asdict
 from typing import Any
 
-from fastapi import HTTPException, Response
+from fastapi import Body, HTTPException, Response
 
+import marquee
 from app import fastapi_app
 from config import VAPID_PUBLIC_KEY, YT_EXAMPLES
 from rooms import create_room, rooms
@@ -84,6 +86,50 @@ async def get_vapid_public_key_endpoint() -> dict[str, str]:
     clientId is authenticated via the socket session — a peer can't
     forge another user's subscription via a public HTTP body."""
     return {"publicKey": VAPID_PUBLIC_KEY}
+
+
+@fastapi_app.post("/api/marquee/preview")
+async def marquee_preview_endpoint(payload: dict[str, Any] = Body(...)) -> dict[str, Any]:
+    """Fetch (or cache-hit) a feed URL and return its title + a sample
+    of items. Used by the client's "Add feed" UI to validate a URL
+    before saving it. Also serves as the data source for user-scoped
+    (private) feeds, which never get persisted on the room."""
+    raw_url = payload.get("url") if isinstance(payload, dict) else None
+    url = marquee.validate_feed_url(raw_url if isinstance(raw_url, str) else "")
+    if not url:
+        raise HTTPException(status_code=400, detail={"ok": False, "error": "bad_url"})
+    entry = await marquee.fetch(url)
+    if entry.error and not entry.items:
+        # Distinguish "couldn't fetch at all" from "fetched, found nothing".
+        raise HTTPException(
+            status_code=502,
+            detail={"ok": False, "error": entry.error[:200]},
+        )
+    return {
+        "ok": True,
+        "url": url,
+        "title": entry.title,
+        "items": [asdict(i) for i in entry.items],
+    }
+
+
+@fastapi_app.post("/api/marquee/items")
+async def marquee_items_endpoint(payload: dict[str, Any] = Body(...)) -> dict[str, Any]:
+    """Return cached items for a single feed URL. Same TTL'd cache as
+    /preview — used by the client to poll user-scoped feeds at the
+    same cadence as the per-room loop."""
+    raw_url = payload.get("url") if isinstance(payload, dict) else None
+    url = marquee.validate_feed_url(raw_url if isinstance(raw_url, str) else "")
+    if not url:
+        raise HTTPException(status_code=400, detail={"ok": False, "error": "bad_url"})
+    entry = await marquee.fetch(url)
+    return {
+        "ok": True,
+        "url": url,
+        "title": entry.title,
+        "error": entry.error,
+        "items": [asdict(i) for i in entry.items],
+    }
 
 
 @fastapi_app.get("/api/rooms/{room_id}/mugshot/{user_id}")

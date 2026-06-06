@@ -77,6 +77,32 @@ class MugshotBlob:
     taken_at: int
 
 
+# A single RSS feed subscribed by the room. URL is the cache key + identity;
+# title is resolved server-side on add (falls back to the URL host if the
+# feed has no <title>). added_by is the clientId of whoever added it
+# (None for the env-seeded defaults).
+# @sync: frontend/src/types.ts:MarqueeFeed
+@dataclass
+class MarqueeFeed:
+    url: str
+    title: str
+    added_by: str | None = None
+
+
+# A single item parsed out of an RSS feed. id is the item's guid
+# or, failing that, a hash of the link — used to dedupe on refresh.
+# @sync: frontend/src/types.ts:MarqueeItem
+@dataclass
+class MarqueeItem:
+    id: str
+    feed_url: str
+    title: str
+    description: str
+    link: str
+    # ms since epoch — used for newest-first sort across feeds.
+    published_at: int
+
+
 @dataclass
 class Room:
     id: str
@@ -109,6 +135,15 @@ class Room:
     mugshot_interval_s: int = 1800
     next_mugshot_at: float = 0.0
     mugshots: dict[str, MugshotBlob] = field(default_factory=dict[str, MugshotBlob])
+    # RSS feeds the room is subscribed to. The list is the source of
+    # truth for the per-room refresh loop in marquee.py; items are
+    # cached per-feed in marquee_items.
+    marquee_feeds: list[MarqueeFeed] = field(default_factory=list[MarqueeFeed])
+    # Latest items per feed URL. Capped to MARQUEE_ITEMS_CAP newest-first
+    # by marquee.py. Dropped when the feed is removed.
+    marquee_items: dict[str, list[MarqueeItem]] = field(
+        default_factory=dict[str, list[MarqueeItem]]
+    )
     # Web Push subscriptions keyed by clientId. Each value is the raw
     # browser PushSubscription object as a dict (endpoint, keys: {p256dh,
     # auth}). Dropped on grace cleanup, room eviction, or 410/404 from

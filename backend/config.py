@@ -32,6 +32,17 @@ QUEUE_MAX = 200
 MUGSHOT_INTERVAL_MIN_S = 60
 MUGSHOT_INTERVAL_MAX_S = 24 * 60 * 60
 
+# Marquee tunables — hardcoded caps and refresh cadence. Refresh-per-feed
+# is global (one TTL'd fetch shared across rooms via marquee.feed_cache),
+# the per-room loop just diffs the cache against room.marquee_items.
+MARQUEE_REFRESH_S = 5 * 60
+MARQUEE_FEED_MAX_PER_ROOM = 10
+MARQUEE_ITEMS_CAP = 30
+MARQUEE_FETCH_TIMEOUT_S = 8
+MARQUEE_URL_MAX_LEN = 500
+MARQUEE_TITLE_MAX_LEN = 200
+MARQUEE_DESCRIPTION_MAX_LEN = 1000
+
 
 # ───────────────── Env helpers ─────────────────
 
@@ -148,3 +159,16 @@ CORS_ORIGINS_FOR_SIO: str | list[str] = (
 )
 
 YT_EXAMPLES = _yt_examples()
+
+
+def _marquee_default_feeds() -> list[str]:
+    """Comma-separated CYA_MARQUEE_DEFAULT_FEED_URLS. Whitespace and empty
+    entries are dropped. Order is preserved — the first URL gets seeded
+    first into a fresh room's marquee_feeds list."""
+    raw = os.getenv("CYA_MARQUEE_DEFAULT_FEED_URLS", "").strip()
+    if not raw:
+        return []
+    return [u.strip() for u in raw.split(",") if u.strip()]
+
+
+MARQUEE_DEFAULT_FEED_URLS = _marquee_default_feeds()
