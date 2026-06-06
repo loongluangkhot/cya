@@ -11,21 +11,25 @@ interface MarqueeStripProps {
 // comfortably without being slow enough to feel stuck.
 const SPEED_PX_S = 60;
 
-// Press shorter than this is treated as a tap (opens the article); longer
-// presses are treated as "holding to pause and read" and don't navigate.
+// Touch press shorter than this is treated as a tap (opens the article);
+// longer touches are "hold to pause and read" and don't navigate. Mouse/pen
+// users have a real hover, so this gate doesn't apply to them.
 const TAP_MAX_MS = 250;
 
 /** Horizontal ticker fixed to the top of the room scene.
- *  Auto-scrolls right-to-left; press-and-hold pauses the scroll
- *  (no drag-to-scroll). The track is doubled and translated by
- *  -trackWidth / 2 so the loop is seamless. */
+ *  Auto-scrolls right-to-left; pauses on hover (desktop) and on
+ *  press-and-hold (touch — pointerenter/leave fire on touchstart/end,
+ *  so the same handlers cover both). The track is doubled and translated
+ *  by -trackWidth / 2 so the loop is seamless. */
 export function MarqueeStrip({ items, onOpenArticle, feedTitle }: MarqueeStripProps) {
   const trackRef = useRef<HTMLDivElement | null>(null);
   const [trackWidth, setTrackWidth] = useState(0);
   const [paused, setPaused] = useState(false);
-  // Timestamp of the current press; click only navigates if release came
-  // within TAP_MAX_MS. A long press is interpreted as "hold to read."
+  // When the strip is entered with a touch pointer, remember the entry
+  // time and pointer type so the inner button can suppress the click for
+  // a long press. Mouse/pen users hover-to-pause and click freely.
   const pressStartRef = useRef<number>(0);
+  const pointerTypeRef = useRef<string>('');
 
   // Re-measure when the item set changes.
   useEffect(() => {
@@ -42,12 +46,11 @@ export function MarqueeStrip({ items, onOpenArticle, feedTitle }: MarqueeStripPr
 
   const durationS = trackWidth > 0 ? trackWidth / SPEED_PX_S : 0;
 
-  // Don't call setPointerCapture here — if the strip captures the
-  // pointer, the inner button never sees a clean pointerdown→pointerup
-  // pair and the browser won't dispatch the click event. Instead we
-  // attach a window-level pointerup fallback below so the strip still
-  // unpauses if the user releases outside it (e.g. mouse drift on desktop).
-  function holdStart() {
+  // pointerenter fires on mouse hover (desktop) and on touchstart (mobile),
+  // so the same pair of handlers covers hover-to-pause and press-and-hold
+  // without any media-query branching.
+  function holdStart(e: React.PointerEvent) {
+    pointerTypeRef.current = e.pointerType;
     pressStartRef.current = Date.now();
     setPaused(true);
   }
@@ -55,15 +58,14 @@ export function MarqueeStrip({ items, onOpenArticle, feedTitle }: MarqueeStripPr
     setPaused(false);
   }
 
+  // Safety net for pointercancel from the OS — pointerleave usually fires
+  // too, but cancel can arrive without it (e.g. touch interrupted by a
+  // system gesture).
   useEffect(() => {
     if (!paused) return;
     const release = () => setPaused(false);
-    window.addEventListener('pointerup', release);
     window.addEventListener('pointercancel', release);
-    return () => {
-      window.removeEventListener('pointerup', release);
-      window.removeEventListener('pointercancel', release);
-    };
+    return () => window.removeEventListener('pointercancel', release);
   }, [paused]);
 
   if (items.length === 0) return null;
@@ -74,10 +76,9 @@ export function MarqueeStrip({ items, onOpenArticle, feedTitle }: MarqueeStripPr
   return (
     <div
       className={`marquee-strip${paused ? ' is-paused' : ''}`}
-      onPointerDown={holdStart}
-      onPointerUp={holdEnd}
-      onPointerCancel={holdEnd}
+      onPointerEnter={holdStart}
       onPointerLeave={holdEnd}
+      onPointerCancel={holdEnd}
       role="region"
       aria-label="marquee"
     >
@@ -96,7 +97,15 @@ export function MarqueeStrip({ items, onOpenArticle, feedTitle }: MarqueeStripPr
             type="button"
             className="marquee-strip-item"
             onClick={() => {
-              if (Date.now() - pressStartRef.current > TAP_MAX_MS) return;
+              // Only gate clicks on touch — desktop hover-to-pause should
+              // never block a deliberate click, no matter how long the
+              // pointer has been over the strip.
+              if (
+                pointerTypeRef.current === 'touch' &&
+                Date.now() - pressStartRef.current > TAP_MAX_MS
+              ) {
+                return;
+              }
               onOpenArticle(item.id);
             }}
             aria-label={`${feedTitle(item.feed_url)}: ${item.title}`}
