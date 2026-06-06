@@ -15,6 +15,8 @@ interface SettingsSheetProps {
   onChangeTheme: (next: ThemeId) => void;
   notifState: NotifState;
   onToggleNotif: () => void;
+  voiceAutoplay: boolean;
+  onToggleVoiceAutoplay: () => void;
 }
 
 export function SettingsSheet({
@@ -24,6 +26,8 @@ export function SettingsSheet({
   onChangeTheme,
   notifState,
   onToggleNotif,
+  voiceAutoplay,
+  onToggleVoiceAutoplay,
 }: SettingsSheetProps) {
   const notifOn = notifState === 'on';
   const notifDisabled =
@@ -62,6 +66,19 @@ export function SettingsSheet({
         <div className="body-text" style={{ marginTop: 6, color: 'var(--muted)' }}>
           {notifHint}
         </div>
+      </div>
+
+      <div className="dial-group">
+        <div className="label">voice</div>
+        <button
+          type="button"
+          className={`dial-btn${voiceAutoplay ? ' selected' : ''}`}
+          onClick={onToggleVoiceAutoplay}
+          aria-pressed={voiceAutoplay}
+          style={{ width: '100%' }}
+        >
+          {voiceAutoplay ? 'on' : 'off'} · autoplay incoming
+        </button>
       </div>
 
       <div style={{ marginBottom: 8 }}>

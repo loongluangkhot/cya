@@ -103,6 +103,29 @@ export interface StatePayload {
   nextMugshotAt: number;
   /** Per-user `takenAt` ms timestamps. Image bytes are fetched via HTTP. */
   mugshotsTakenAt: Record<string, number>;
+  /** RSS feeds the room is subscribed to. */
+  marqueeFeeds: MarqueeFeed[];
+  /** Latest items per feed URL. */
+  marqueeItems: Record<string, MarqueeItem[]>;
+}
+
+// @sync: backend/models.py:MarqueeFeed
+export interface MarqueeFeed {
+  url: string;
+  title: string;
+  /** clientId of the user who added the feed, or null for env-seeded defaults. */
+  added_by: string | null;
+}
+
+// @sync: backend/models.py:MarqueeItem
+export interface MarqueeItem {
+  id: string;
+  feed_url: string;
+  title: string;
+  description: string;
+  link: string;
+  /** ms since epoch. */
+  published_at: number;
 }
 
 export interface MovePayload {
@@ -141,6 +164,9 @@ export interface ServerToClientEvents {
   mugshotPrompt: (payload: { nextAt: number }) => void;
   mugshotSubmitted: (payload: { userId: string; takenAt: number }) => void;
   mugshotIntervalChanged: (payload: { intervalS: number; nextAt: number }) => void;
+  marqueeFeedsChanged: (payload: { feeds: MarqueeFeed[] }) => void;
+  marqueeItemsChanged: (payload: { feedUrl: string; items: MarqueeItem[] }) => void;
+  marqueeFeedError: (payload: { feedUrl: string; error: string }) => void;
 }
 
 export interface JoinAck {
@@ -189,6 +215,9 @@ export interface ClientToServerEvents {
     mime: string;
   }) => void;
   updateMugshotInterval: (payload: { intervalS: number }) => void;
+  addMarqueeFeed: (payload: { url: string }) => void;
+  removeMarqueeFeed: (payload: { url: string }) => void;
+  requestMarqueeRefresh: () => void;
   subscribePush: (payload: {
     endpoint: string;
     keys: { p256dh: string; auth: string };

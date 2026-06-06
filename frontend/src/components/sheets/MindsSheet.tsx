@@ -16,7 +16,7 @@ interface MindsSheetProps {
 
 export function MindsSheet({ open, onClose, peers, meId, onEditMine }: MindsSheetProps) {
   return (
-    <Sheet open={open} onClose={onClose} title="on everyone's mind" tall>
+    <Sheet open={open} onClose={onClose} title="minds" tall>
       <MindsBoard peers={peers} meId={meId} onEditMine={onEditMine} />
     </Sheet>
   );

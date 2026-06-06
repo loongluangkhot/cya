@@ -6,6 +6,8 @@ import type {
   CharacterId,
   ChatMessage,
   ColorId,
+  MarqueeFeed,
+  MarqueeItem,
   PlaybackState,
   User,
   UserStatus,
@@ -49,6 +51,10 @@ export interface UseRoomStateResult {
   mugshotsTakenAt: Record<string, number>;
   /** Fires when the server pushes a mugshotPrompt — for the capture UI to subscribe to. */
   promptToken: number;
+  roomMarqueeFeeds: MarqueeFeed[];
+  roomMarqueeItems: Record<string, MarqueeItem[]>;
+  addMarqueeFeed: (url: string) => void;
+  removeMarqueeFeed: (url: string) => void;
   sendMessage: (text: string) => void;
   sendVoice: (audio: ArrayBuffer, durationMs: number, mime: string) => void;
   updateMemo: (memo: string) => void;
@@ -91,6 +97,8 @@ export function useRoomState({ onToast }: UseRoomStateOpts): UseRoomStateResult 
   const [mugshotIntervalS, setMugshotIntervalS] = useState<number>(1800);
   const [nextMugshotAt, setNextMugshotAt] = useState<number>(0);
   const [mugshotsTakenAt, setMugshotsTakenAt] = useState<Record<string, number>>({});
+  const [roomMarqueeFeeds, setRoomMarqueeFeeds] = useState<MarqueeFeed[]>([]);
+  const [roomMarqueeItems, setRoomMarqueeItems] = useState<Record<string, MarqueeItem[]>>({});
   // Monotonic counter bumped on every server-pushed prompt — components
   // can useEffect on it to trigger the capture sheet without depending
   // on the (stable) timestamp values.
@@ -241,6 +249,8 @@ export function useRoomState({ onToast }: UseRoomStateOpts): UseRoomStateResult 
       mugshotIntervalS?: number;
       nextMugshotAt?: number;
       mugshotsTakenAt?: Record<string, number>;
+      marqueeFeeds?: MarqueeFeed[];
+      marqueeItems?: Record<string, MarqueeItem[]>;
     }) {
       setMeId(payload.you.id);
       const normalized = payload.users.map((u) => ({
@@ -260,6 +270,29 @@ export function useRoomState({ onToast }: UseRoomStateOpts): UseRoomStateResult 
         setNextMugshotAt(payload.nextMugshotAt);
       }
       if (payload.mugshotsTakenAt) setMugshotsTakenAt(payload.mugshotsTakenAt);
+      if (Array.isArray(payload.marqueeFeeds)) setRoomMarqueeFeeds(payload.marqueeFeeds);
+      if (payload.marqueeItems) setRoomMarqueeItems(payload.marqueeItems);
+    }
+    function onMarqueeFeedsChanged(p: { feeds: MarqueeFeed[] }) {
+      setRoomMarqueeFeeds(p.feeds);
+      // Drop any cached items for feeds that are no longer subscribed.
+      setRoomMarqueeItems((prev) => {
+        const allowed = new Set(p.feeds.map((f) => f.url));
+        let changed = false;
+        const next: Record<string, MarqueeItem[]> = {};
+        for (const [url, items] of Object.entries(prev)) {
+          if (allowed.has(url)) next[url] = items;
+          else changed = true;
+        }
+        return changed ? next : prev;
+      });
+    }
+    function onMarqueeItemsChanged(p: { feedUrl: string; items: MarqueeItem[] }) {
+      setRoomMarqueeItems((prev) => ({ ...prev, [p.feedUrl]: p.items }));
+    }
+    function onMarqueeFeedError(_p: { feedUrl: string; error: string }) {
+      // Currently silent on the client — error surfaces via the sheet
+      // when the source has no items and a non-empty error string.
     }
     function onUserMoved({ id, x, y }: { id: string; x: number; y: number }) {
       setUsers((prev) =>
@@ -300,6 +333,16 @@ export function useRoomState({ onToast }: UseRoomStateOpts): UseRoomStateResult 
         ...prev,
         [msg.userId]: { text: bubbleText, expiresAt: Date.now() + BUBBLE_MS, id: msg.id },
       }));
+      // Notify VoicePlayer instances that a freshly-arrived clip is theirs
+      // to autoplay (when the local user opted in). Deferred so the new
+      // message renders and its player subscribes before we fire.
+      if (msg.kind === 'voice' && !msg.audioExpired && msg.userId !== meRef.current) {
+        setTimeout(() => {
+          window.dispatchEvent(
+            new CustomEvent('cya:voice-arrived', { detail: { messageId: msg.id } }),
+          );
+        }, 0);
+      }
     }
     function onAudioExpired(payload: { ids: string[] }) {
       const ids = new Set(payload.ids);
@@ -389,6 +432,9 @@ export function useRoomState({ onToast }: UseRoomStateOpts): UseRoomStateResult 
     socket.on('mugshotSubmitted', onMugshotSubmitted);
     socket.on('mugshotIntervalChanged', onMugshotIntervalChanged);
     socket.on('userStatusChanged', onUserStatusChanged);
+    socket.on('marqueeFeedsChanged', onMarqueeFeedsChanged);
+    socket.on('marqueeItemsChanged', onMarqueeItemsChanged);
+    socket.on('marqueeFeedError', onMarqueeFeedError);
 
     return () => {
       socket.off('state', onState as never);
@@ -406,6 +452,9 @@ export function useRoomState({ onToast }: UseRoomStateOpts): UseRoomStateResult 
       socket.off('mugshotSubmitted', onMugshotSubmitted);
       socket.off('mugshotIntervalChanged', onMugshotIntervalChanged);
       socket.off('userStatusChanged', onUserStatusChanged);
+      socket.off('marqueeFeedsChanged', onMarqueeFeedsChanged);
+      socket.off('marqueeItemsChanged', onMarqueeItemsChanged);
+      socket.off('marqueeFeedError', onMarqueeFeedError);
     };
   }, []);
 
@@ -560,6 +609,15 @@ export function useRoomState({ onToast }: UseRoomStateOpts): UseRoomStateResult 
     setNextMugshotAt(Date.now() + intervalS * 1000);
     socket.emit('updateMugshotInterval', { intervalS });
   }
+  function addMarqueeFeed(url: string) {
+    const trimmed = url.trim();
+    if (!trimmed) return;
+    socket.emit('addMarqueeFeed', { url: trimmed });
+  }
+  function removeMarqueeFeed(url: string) {
+    if (!url) return;
+    socket.emit('removeMarqueeFeed', { url });
+  }
 
   return {
     meId,
@@ -588,5 +646,9 @@ export function useRoomState({ onToast }: UseRoomStateOpts): UseRoomStateResult 
     clearQueue,
     submitMugshot,
     updateMugshotInterval,
+    roomMarqueeFeeds,
+    roomMarqueeItems,
+    addMarqueeFeed,
+    removeMarqueeFeed,
   };
 }

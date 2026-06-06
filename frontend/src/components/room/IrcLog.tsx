@@ -7,9 +7,10 @@ interface IrcLogProps {
   messages: ChatMessage[];
   peersById: Record<string, User>;
   roomId: string;
+  voiceAutoplay: boolean;
 }
 
-export function IrcLog({ messages, peersById, roomId }: IrcLogProps) {
+export function IrcLog({ messages, peersById, roomId, voiceAutoplay }: IrcLogProps) {
   const scrollRef = useRef<HTMLDivElement | null>(null);
 
   useLayoutEffect(() => {
@@ -38,6 +39,7 @@ export function IrcLog({ messages, peersById, roomId }: IrcLogProps) {
                     mime={m.audioMime}
                     expired={m.audioExpired}
                     compact
+                    autoplay={voiceAutoplay}
                   />
                 </span>
               ) : (

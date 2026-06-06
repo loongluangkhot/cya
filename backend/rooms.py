@@ -14,8 +14,15 @@ import asyncio
 import random
 import time
 
-from config import MUGSHOT_INTERVAL_DEFAULT_S, ROOM_GRACE_S, ROOM_HEIGHT, ROOM_WIDTH
-from models import Room
+from config import (
+    MARQUEE_DEFAULT_FEED_URLS,
+    MARQUEE_FEED_MAX_PER_ROOM,
+    MUGSHOT_INTERVAL_DEFAULT_S,
+    ROOM_GRACE_S,
+    ROOM_HEIGHT,
+    ROOM_WIDTH,
+)
+from models import MarqueeFeed, Room
 from words import generate_slug
 
 rooms: dict[str, Room] = {}
@@ -45,9 +52,11 @@ async def _evict_room_later(room_id: str) -> None:
     rooms.pop(room_id, None)
     # Local import breaks the rooms ↔ mugshots cycle (mugshots needs
     # the rooms dict; we only need its cancel hook here).
+    from marquee import cancel as cancel_marquee_loop
     from mugshots import cancel as cancel_mugshot_loop
 
     cancel_mugshot_loop(room_id)
+    cancel_marquee_loop(room_id)
     # Outstanding per-user cleanup tasks are now orphaned — their target
     # room is gone, so cancel them to avoid a tiny pile of zombie tasks.
     for task in list(room.pending_user_cleanups.values()):
@@ -77,11 +86,19 @@ def _init_room(slug: str) -> Room:
     room = Room(id=slug)
     room.mugshot_interval_s = MUGSHOT_INTERVAL_DEFAULT_S
     room.next_mugshot_at = (time.time() + room.mugshot_interval_s) * 1000
+    # Seed env-configured default RSS feeds. Title is empty until the
+    # marquee loop's first fetch resolves it (the client falls back to
+    # the URL host). Cap at the per-room limit so a misconfigured env
+    # var can't blow past it.
+    for url in MARQUEE_DEFAULT_FEED_URLS[:MARQUEE_FEED_MAX_PER_ROOM]:
+        room.marquee_feeds.append(MarqueeFeed(url=url, title="", added_by=None))
     rooms[slug] = room
-    # Local import breaks the rooms ↔ mugshots cycle.
+    # Local imports break the rooms ↔ {mugshots, marquee} cycles.
+    from marquee import start as start_marquee_loop
     from mugshots import start as start_mugshot_loop
 
     start_mugshot_loop(slug)
+    start_marquee_loop(slug)
     return room
 
 
