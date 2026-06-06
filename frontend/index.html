@@ -8,6 +8,14 @@
     />
     <meta name="theme-color" content="#f6f5f1" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="manifest" href="/manifest.json" />
+    <!-- iOS Safari shim — these unlock the standalone home-screen
+         shell, which iOS 16.4+ requires before exposing PushManager.
+         apple-touch-icon must be a PNG; SVG is silently ignored. -->
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="cya" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <title>cya</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
