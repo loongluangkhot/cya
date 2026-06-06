@@ -5,7 +5,6 @@ import {
   CenterMessage,
   HomeScreen,
   type Identity,
-  InviteScreen,
   SetupScreen,
   SplashScreen,
 } from './components/Screens';
@@ -16,8 +15,7 @@ import { useStoredState } from './hooks/useStoredState';
 type LandingMode =
   | { kind: 'splash' }
   | { kind: 'setup' }
-  | { kind: 'home' }
-  | { kind: 'invite'; roomId: string };
+  | { kind: 'home' };
 
 function Landing() {
   const navigate = useNavigate();
@@ -46,7 +44,7 @@ function Landing() {
 
   async function onHomeCreate() {
     const id = await createRoom();
-    if (id) setMode({ kind: 'invite', roomId: id });
+    if (id) navigate(`/r/${id}`);
   }
 
   function onJoinLink(slug: string) {
@@ -71,20 +69,6 @@ function Landing() {
             setMode({ kind: 'home' });
           }}
           onCancel={me ? () => setMode({ kind: 'home' }) : undefined}
-        />
-      </div>
-    );
-  }
-
-  if (mode.kind === 'invite') {
-    return (
-      <div className="cya-app">
-        <InviteScreen
-          roomId={mode.roomId}
-          onEnter={() => {
-            navigate(`/r/${mode.roomId}`);
-          }}
-          onBack={() => setMode({ kind: 'home' })}
         />
       </div>
     );
