@@ -3,7 +3,6 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { API_BASE } from '../api';
 import { loadIdentity, saveIdentity } from '../identity';
 import { socket } from '../socket';
-import { clearRoomJoined, isCurrentRoom, markRoomJoined } from '../roomState';
 import Room from './Room';
 import {
   CenterMessage,
@@ -30,17 +29,16 @@ export default function RoomEntry() {
 
   const [roomCheck, setRoomCheck] = useState<RoomCheck>('checking');
   const [me, setMe] = useState<Identity | null>(loadIdentity());
-  // If this tab has already joined this room (membership marker present),
-  // skip the joining screen on any kind of re-mount — including post-OAuth
-  // redirects, in-tab refreshes, and identity-edit overlays unmounting.
-  const [phase, setPhase] = useState<Phase>(
-    roomId && isCurrentRoom(roomId) ? 'room' : 'joining',
-  );
+  const [phase, setPhase] = useState<Phase>('joining');
   const [editing, setEditing] = useState(false);
   const [occupants, setOccupants] = useState<OccupantPeek[] | null>(null);
   const meRef = useRef(me);
   meRef.current = me;
 
+  // Single peek call doubles as the existence check, occupant fetch, AND
+  // the "am I still in?" probe — the server's USER_GRACE_S window lets a
+  // recently-disconnected client jump straight back into the room without
+  // the drop-in screen.
   useEffect(() => {
     if (!roomId) {
       setRoomCheck('not_found');
@@ -48,10 +46,18 @@ export default function RoomEntry() {
     }
     let cancelled = false;
     setRoomCheck('checking');
-    fetch(`${API_BASE}/api/rooms/${encodeURIComponent(roomId)}`)
-      .then((r) => {
+    setOccupants(null);
+    const cid = meRef.current?.clientId;
+    const qs = cid ? `?clientId=${encodeURIComponent(cid)}` : '';
+    fetch(`${API_BASE}/api/rooms/${encodeURIComponent(roomId)}/peek${qs}`)
+      .then((r) =>
+        r.ok ? r.json() : Promise.reject(new Error('not_found')),
+      )
+      .then((data: { users: OccupantPeek[]; youAreIn?: boolean }) => {
         if (cancelled) return;
-        setRoomCheck(r.ok ? 'ok' : 'not_found');
+        setRoomCheck('ok');
+        setOccupants(data.users ?? []);
+        if (data.youAreIn) setPhase('room');
       })
       .catch(() => {
         if (!cancelled) setRoomCheck('not_found');
@@ -64,7 +70,6 @@ export default function RoomEntry() {
   // Connect socket once we're in the room phase.
   useEffect(() => {
     if (phase !== 'room' || !roomId || !meRef.current) return;
-    markRoomJoined(roomId);
 
     function doJoin() {
       const cm = meRef.current;
@@ -81,8 +86,8 @@ export default function RoomEntry() {
         },
         (ack) => {
           if (!ack?.ok) {
-            clearRoomJoined();
             setRoomCheck('not_found');
+            setPhase('joining');
             return;
           }
           // Tell the lossy-emit queue in useRoomState that we're
@@ -94,7 +99,6 @@ export default function RoomEntry() {
 
     function onDisconnect(reason: string) {
       if (reason === 'io server disconnect') {
-        clearRoomJoined();
         navigate('/', { replace: true });
       }
     }
@@ -111,24 +115,6 @@ export default function RoomEntry() {
       if (socket.connected) socket.disconnect();
     };
   }, [phase, roomId, navigate]);
-
-  // Fetch occupant list for the joining screen.
-  useEffect(() => {
-    if (phase !== 'joining' || roomCheck !== 'ok' || !roomId) return;
-    let cancelled = false;
-    setOccupants(null);
-    fetch(`${API_BASE}/api/rooms/${encodeURIComponent(roomId)}/peek`)
-      .then((r) => (r.ok ? r.json() : Promise.reject(new Error('peek failed'))))
-      .then((data: { users: OccupantPeek[] }) => {
-        if (!cancelled) setOccupants(data.users ?? []);
-      })
-      .catch(() => {
-        if (!cancelled) setOccupants([]);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [phase, roomCheck, roomId]);
 
   if (roomCheck === 'checking') {
     return (
@@ -183,7 +169,6 @@ export default function RoomEntry() {
           roomId={roomId}
           onEditMe={() => setEditing(true)}
           onLeave={() => {
-            clearRoomJoined();
             navigate('/');
           }}
           onMemoPersist={(memo) => {

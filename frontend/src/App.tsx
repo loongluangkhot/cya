@@ -11,7 +11,6 @@ import {
 } from './components/Screens';
 import RoomEntry from './components/RoomEntry';
 import { ME_KEY, validateIdentity } from './identity';
-import { markRoomJoined } from './roomState';
 import { useStoredState } from './hooks/useStoredState';
 
 type LandingMode =
@@ -83,7 +82,6 @@ function Landing() {
         <InviteScreen
           roomId={mode.roomId}
           onEnter={() => {
-            markRoomJoined(mode.roomId);
             navigate(`/r/${mode.roomId}`);
           }}
           onBack={() => setMode({ kind: 'home' })}
