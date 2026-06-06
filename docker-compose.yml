@@ -17,6 +17,10 @@ services:
     restart: unless-stopped
     volumes:
       - ./backend/.env:/app/.env:ro
+      # SIGTERM-only room snapshot lives here so a redeploy doesn't
+      # evict active sessions. Bind-mounted from the host so it survives
+      # container replacement.
+      - ./backend/data:/app/data
     networks:
       - internal
       - edge

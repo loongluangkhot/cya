@@ -9,7 +9,7 @@ interfaces in ``frontend/src/types.ts`` (look for the
 from __future__ import annotations
 
 import asyncio
-from dataclasses import dataclass, field
+from dataclasses import MISSING, dataclass, field, fields
 from typing import Any
 
 
@@ -171,3 +171,34 @@ class Room:
         if self._lock is None:
             self._lock = asyncio.Lock()
         return self._lock
+
+    # Fields tied to this process's event loop or to live socket.io sids:
+    # not meaningful after a restart, and _lock / pending_user_cleanups
+    # aren't picklable at all. Excluded on dump; reset to empty defaults
+    # on load. New transient field? Add it here.
+    _TRANSIENT_FIELDS = (
+        "_lock",
+        "pending_user_cleanups",
+        "client_to_sids",
+        "sid_visible",
+        "reconnect_seq",
+    )
+
+    def __getstate__(self) -> dict[str, Any]:
+        return {
+            k: v for k, v in self.__dict__.items() if k not in self._TRANSIENT_FIELDS
+        }
+
+    def __setstate__(self, state: dict[str, Any]) -> None:
+        self.__dict__.update(state)
+        # Pickle skips __init__, so dataclass defaults never get applied.
+        # Walk the fields and fill in any that the snapshot didn't carry —
+        # that covers both excluded transient fields and schema drift
+        # (e.g., a field added after this snapshot was written).
+        for f in fields(self):
+            if f.name in self.__dict__:
+                continue
+            if f.default is not MISSING:
+                setattr(self, f.name, f.default)
+            elif f.default_factory is not MISSING:
+                setattr(self, f.name, f.default_factory())
