@@ -52,6 +52,7 @@ const PLAYER_MODE_KEY = 'cya:yt:mode:v1';
 const YT_POPUP_KEY = 'cya:yt:popup:v1';
 const MUG_OPT_IN_KEY = 'cya:mug:opt-in:v1';
 const MUG_POPUP_KEY = 'cya:mug:popup:v1';
+const VOICE_AUTOPLAY_KEY = 'cya:voice:autoplay:v1';
 
 function validatePlayerMode(v: unknown): PlayerMode | null {
   return v === 'theater' || v === 'audio' ? v : null;
@@ -131,6 +132,11 @@ export default function Room({ roomId, onEditMe, onLeave, onMemoPersist }: RoomP
   );
   const [mugshotBoardOn, setMugshotBoardOn] = useStoredState<boolean>(
     MUG_POPUP_KEY,
+    true,
+    validateBool,
+  );
+  const [voiceAutoplay, setVoiceAutoplay] = useStoredState<boolean>(
+    VOICE_AUTOPLAY_KEY,
     true,
     validateBool,
   );
@@ -306,7 +312,12 @@ export default function Room({ roomId, onEditMe, onLeave, onMemoPersist }: RoomP
           />
         )}
 
-        <IrcLog messages={messages} peersById={peersById} roomId={roomId} />
+        <IrcLog
+          messages={messages}
+          peersById={peersById}
+          roomId={roomId}
+          voiceAutoplay={voiceAutoplay}
+        />
 
         {mugshotOptIn && mugshotBoardOn && (
           <MugshotBoard
@@ -421,6 +432,8 @@ export default function Room({ roomId, onEditMe, onLeave, onMemoPersist }: RoomP
         }}
         notifState={notifState}
         onToggleNotif={toggleNotif}
+        voiceAutoplay={voiceAutoplay}
+        onToggleVoiceAutoplay={() => setVoiceAutoplay((v) => !v)}
       />
       <MugshotSheet
         open={sheet === 'mugshot'}

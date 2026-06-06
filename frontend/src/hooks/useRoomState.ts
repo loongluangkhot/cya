@@ -333,6 +333,16 @@ export function useRoomState({ onToast }: UseRoomStateOpts): UseRoomStateResult 
         ...prev,
         [msg.userId]: { text: bubbleText, expiresAt: Date.now() + BUBBLE_MS, id: msg.id },
       }));
+      // Notify VoicePlayer instances that a freshly-arrived clip is theirs
+      // to autoplay (when the local user opted in). Deferred so the new
+      // message renders and its player subscribes before we fire.
+      if (msg.kind === 'voice' && !msg.audioExpired && msg.userId !== meRef.current) {
+        setTimeout(() => {
+          window.dispatchEvent(
+            new CustomEvent('cya:voice-arrived', { detail: { messageId: msg.id } }),
+          );
+        }, 0);
+      }
     }
     function onAudioExpired(payload: { ids: string[] }) {
       const ids = new Set(payload.ids);
