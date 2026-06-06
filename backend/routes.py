@@ -32,10 +32,16 @@ async def get_room_endpoint(room_id: str) -> dict[str, Any]:
 
 
 @fastapi_app.get("/api/rooms/{room_id}/peek")
-async def peek_room_endpoint(room_id: str) -> dict[str, Any]:
+async def peek_room_endpoint(
+    room_id: str, clientId: str | None = None
+) -> dict[str, Any]:
     room = rooms.get(room_id)
     if room is None:
         raise HTTPException(status_code=404, detail={"ok": False})
+    # `youAreIn` reflects the grace window: a recently-disconnected client
+    # still occupies room.users for USER_GRACE_S, so the frontend can skip
+    # the drop-in screen on a tab-reopen within that window.
+    you_are_in = bool(clientId and clientId in room.users)
     return {
         "ok": True,
         "id": room.id,
@@ -43,6 +49,7 @@ async def peek_room_endpoint(room_id: str) -> dict[str, Any]:
             {"id": u.id, "name": u.name, "character": u.character, "color": u.color}
             for u in room.users.values()
         ],
+        "youAreIn": you_are_in,
     }
 
 

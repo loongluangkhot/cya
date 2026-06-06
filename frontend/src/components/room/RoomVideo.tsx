@@ -3,11 +3,8 @@ import Icon from '../Icon';
 import { useYoutubeMeta } from '../../hooks/useYoutubeMeta';
 import { thumbUrl } from '../../youtube';
 
-export type RoomPlacement = 'corner' | 'wall' | 'off';
-
 interface RoomVideoProps {
   trackId: string;
-  placement: 'corner' | 'wall';
   audioOnly: boolean;
   isPlaying: boolean;
   hasQueue: boolean;
@@ -18,12 +15,45 @@ interface RoomVideoProps {
   onClose: () => void;
 }
 
+interface Rect {
+  x: number | null;
+  y: number | null;
+  width: number;
+}
+
 const MIN_WIDTH = 160;
 const MAX_WIDTH = 720;
+const DEFAULT_WIDTH = 212;
+const RECT_KEY = 'cya:yt:rect:v1';
+
+function loadRect(): Rect {
+  try {
+    const raw = localStorage.getItem(RECT_KEY);
+    if (!raw) return { x: null, y: null, width: DEFAULT_WIDTH };
+    const parsed = JSON.parse(raw) as Partial<Rect>;
+    return {
+      x: typeof parsed.x === 'number' ? parsed.x : null,
+      y: typeof parsed.y === 'number' ? parsed.y : null,
+      width:
+        typeof parsed.width === 'number'
+          ? Math.max(MIN_WIDTH, Math.min(MAX_WIDTH, parsed.width))
+          : DEFAULT_WIDTH,
+    };
+  } catch {
+    return { x: null, y: null, width: DEFAULT_WIDTH };
+  }
+}
+
+function saveRect(rect: Rect) {
+  try {
+    localStorage.setItem(RECT_KEY, JSON.stringify(rect));
+  } catch {
+    // ignore — private window
+  }
+}
 
 export function RoomVideo({
   trackId,
-  placement,
   audioOnly,
   isPlaying,
   hasQueue,
@@ -35,14 +65,11 @@ export function RoomVideo({
 }: RoomVideoProps) {
   const meta = useYoutubeMeta(trackId);
   const boxRef = useRef<HTMLDivElement | null>(null);
-  const [pos, setPos] = useState<{ x: number; y: number } | null>(null);
-  const [width, setWidth] = useState<number | null>(null);
+  const [rect, setRect] = useState<Rect>(() => loadRect());
 
-  // Snap back to the CSS-default spot/size whenever placement changes.
   useEffect(() => {
-    setPos(null);
-    setWidth(null);
-  }, [placement]);
+    saveRect(rect);
+  }, [rect]);
 
   function onGripDown(e: ReactPointerEvent<HTMLButtonElement>) {
     e.preventDefault();
@@ -56,16 +83,16 @@ export function RoomVideo({
     } catch {
       // ignore
     }
-    const rect = box.getBoundingClientRect();
+    const r = box.getBoundingClientRect();
     const op = (box.offsetParent as HTMLElement | null) ?? document.body;
     const parent = op.getBoundingClientRect();
     const start = {
       mx: e.clientX,
       my: e.clientY,
-      ox: rect.left - parent.left,
-      oy: rect.top - parent.top,
-      w: rect.width,
-      h: rect.height,
+      ox: r.left - parent.left,
+      oy: r.top - parent.top,
+      w: r.width,
+      h: r.height,
       pw: parent.width || window.innerWidth,
       ph: parent.height || window.innerHeight,
     };
@@ -74,7 +101,7 @@ export function RoomVideo({
       let ny = start.oy + (ev.clientY - start.my);
       nx = Math.max(6, Math.min(nx, start.pw - start.w - 6));
       ny = Math.max(6, Math.min(ny, start.ph - start.h - 6));
-      setPos({ x: nx, y: ny });
+      setRect((cur) => ({ ...cur, x: nx, y: ny }));
     }
     function up() {
       try {
@@ -104,7 +131,7 @@ export function RoomVideo({
     const startX = e.clientX;
     function move(ev: PointerEvent) {
       const next = Math.max(MIN_WIDTH, Math.min(MAX_WIDTH, startW + (ev.clientX - startX)));
-      setWidth(next);
+      setRect((cur) => ({ ...cur, width: next }));
     }
     function up() {
       try {
@@ -119,25 +146,24 @@ export function RoomVideo({
     handle.addEventListener('pointerup', up);
   }
 
-  const style: React.CSSProperties | undefined = pos || width !== null
-    ? {
-        ...(pos
-          ? {
-              left: pos.x,
-              top: pos.y,
-              right: 'auto' as const,
-              bottom: 'auto' as const,
-              transform: 'none',
-            }
-          : {}),
-        ...(width !== null ? { width } : {}),
-      }
-    : undefined;
+  const moved = rect.x !== null && rect.y !== null;
+  const style: React.CSSProperties = {
+    width: rect.width,
+    ...(moved
+      ? {
+          left: rect.x as number,
+          top: rect.y as number,
+          right: 'auto',
+          bottom: 'auto',
+          transform: 'none',
+        }
+      : {}),
+  };
 
   return (
     <div
       ref={boxRef}
-      className={`room-video ${placement}${audioOnly ? ' is-audio' : ''}${pos || width !== null ? ' is-dragged' : ''}`}
+      className={`room-video${audioOnly ? ' is-audio' : ''}${moved ? ' is-dragged' : ''}`}
       style={style}
     >
       {audioOnly ? (

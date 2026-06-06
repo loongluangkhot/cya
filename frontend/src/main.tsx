@@ -26,6 +26,47 @@ applyTheme(loadTheme());
   }
 })();
 
+// One-shot migration: the in-room music popup's 3-state placement
+// (`'corner' | 'wall' | 'off'`) was replaced by a boolean visibility
+// flag + a separate rect record. The old `cya:yt:room:v1` key has no
+// reader anymore; drop it so storage doesn't accumulate dead entries.
+(function migrateRoomVideoPlacement() {
+  const MIGRATION_KEY = 'cya:migration:room-video:v1';
+  try {
+    if (localStorage.getItem(MIGRATION_KEY)) return;
+    localStorage.removeItem('cya:yt:room:v1');
+    localStorage.setItem(MIGRATION_KEY, '1');
+  } catch {
+    // ignore — private mode etc.
+  }
+})();
+
+// One-shot migration: mugshot + music popup keys were renamed to a
+// shared `cya:<feature>:{rect|popup|opt-in}:v1` shape. Copy values
+// over so users keep their toggles and rect; drop the old keys.
+(function migratePopupKeyNames() {
+  const MIGRATION_KEY = 'cya:migration:popups-align:v1';
+  const renames: Array<[string, string]> = [
+    ['cya:mug:board:v1', 'cya:mug:popup:v1'],
+    ['cya:yt:room-on:v1', 'cya:yt:popup:v1'],
+    ['cya:yt:room:rect:v1', 'cya:yt:rect:v1'],
+    ['cya:yt:enabled:v1', 'cya:yt:opt-in:v1'],
+  ];
+  try {
+    if (localStorage.getItem(MIGRATION_KEY)) return;
+    for (const [oldKey, newKey] of renames) {
+      const val = localStorage.getItem(oldKey);
+      if (val !== null && localStorage.getItem(newKey) === null) {
+        localStorage.setItem(newKey, val);
+      }
+      localStorage.removeItem(oldKey);
+    }
+    localStorage.setItem(MIGRATION_KEY, '1');
+  } catch {
+    // ignore — private mode etc.
+  }
+})();
+
 // Identity migration: a pre-clientId record gets a clientId minted +
 // persisted *before* any React component reads it. Without this, each
 // component (App's useStoredState, RoomEntry's loadIdentity) would

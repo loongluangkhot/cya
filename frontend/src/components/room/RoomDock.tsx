@@ -205,6 +205,15 @@ export function RoomDock({
         </button>
         <button
           type="button"
+          className="dock-glyph"
+          onClick={onOpenMinds}
+          aria-label="minds"
+          title="minds"
+        >
+          <span className="dock-glyph-char">✺</span>
+        </button>
+        <button
+          type="button"
           className={`dock-glyph${musicEnabled ? ' is-active' : ''}`}
           onClick={onOpenMusic}
           aria-label="music"
@@ -224,15 +233,6 @@ export function RoomDock({
           intervalS={mugshotIntervalS}
           onOpen={onOpenMugshot}
         />
-        <button
-          type="button"
-          className="dock-glyph"
-          onClick={onOpenMinds}
-          aria-label="minds"
-          title="minds"
-        >
-          <span className="dock-glyph-char">✺</span>
-        </button>
       </div>
 
       {/* Now-playing ticker — only visible when music is playing. Keeps

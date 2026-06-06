@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { colorHex } from '../../characters';
 import type { User } from '../../types';
 import PixelCharacter from '../PixelCharacter';
@@ -16,15 +17,39 @@ interface JoiningProps {
 export function JoiningScreen({ roomId, me, occupants, onEnter, onEditMe }: JoiningProps) {
   const displayName = roomId.replace(/-/g, ' ');
   const url = typeof window !== 'undefined' ? `${window.location.host}/r/${roomId}` : `/r/${roomId}`;
+  const [copied, setCopied] = useState(false);
+
+  async function copy() {
+    try {
+      const full = typeof window !== 'undefined' ? `${window.location.origin}/r/${roomId}` : url;
+      await navigator.clipboard.writeText(full);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1400);
+    } catch {
+      // ignore
+    }
+  }
+
   return (
     <div className="screen">
       <div className="status-bar-space" />
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 18 }}>
-        <div className="h-mono">you were invited to</div>
         <div className="space-name lg">{displayName}</div>
-        <div className="h-mono">{url}</div>
 
-        <div className="who-card" style={{ marginTop: 22 }}>
+        <div>
+          <div className="label">invite link</div>
+          <button type="button" className="invite-link" onClick={copy}>
+            <span className="url">{url}</span>
+            <span className={`copy-tag${copied ? ' copied' : ''}`}>
+              {copied ? 'copied ✓' : 'copy'}
+            </span>
+          </button>
+          <div className="body-text" style={{ marginTop: 10 }}>
+            anyone with this link drops in. no signup. it stops working when the room empties.
+          </div>
+        </div>
+
+        <div className="who-card" style={{ marginTop: 10 }}>
           <div className="h-mono" style={{ marginBottom: 10 }}>
             {occupants ? `${occupants.length} inside` : 'checking room…'}
           </div>

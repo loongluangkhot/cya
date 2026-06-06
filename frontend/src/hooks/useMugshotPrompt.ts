@@ -31,20 +31,22 @@ export function useMugshotPrompt({
   onToast,
   onOpenCapture,
 }: UseMugshotPromptOpts) {
-  // Skip the first render — promptToken=0 is the initial state, not a
-  // real prompt. Without this, joining the room would always pop the
-  // sheet immediately, before the join-time prompt has even arrived.
-  const seededRef = useRef(false);
+  // Track the last token we acted on. A simple "skip first render" ref
+  // doesn't survive React 18 StrictMode in dev — the doubled effect
+  // invocation would mark itself "seeded" the first time and then fire
+  // the prompt on the second pass with no actual server event behind it.
+  // Comparing prev to current is idempotent under the double-invocation.
+  const lastTokenRef = useRef<number | null>(null);
   const onToastRef = useRef(onToast);
   onToastRef.current = onToast;
   const onOpenCaptureRef = useRef(onOpenCapture);
   onOpenCaptureRef.current = onOpenCapture;
 
   useEffect(() => {
-    if (!seededRef.current) {
-      seededRef.current = true;
-      return;
-    }
+    const prev = lastTokenRef.current;
+    lastTokenRef.current = promptToken;
+    if (prev === null) return;
+    if (prev === promptToken) return;
     if (!optIn) return;
     onToastRef.current('mugshot time — say cheese');
     onOpenCaptureRef.current();

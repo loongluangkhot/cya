@@ -17,6 +17,7 @@ import json
 import logging
 from typing import Any
 
+from py_vapid import Vapid01
 from pywebpush import WebPushException, webpush
 
 from config import (
@@ -27,6 +28,14 @@ from config import (
 from models import Room
 
 log = logging.getLogger("cya.push")
+
+# Parse the PEM once at import. pywebpush's own `from_string` path
+# strips newlines and tries to base64-decode the result, which fails on
+# PEM-wrapped keys; passing a pre-built `Vapid01` short-circuits that
+# branch in `webpush()` (it sees a Vapid instance and uses it directly).
+_VAPID_KEY: Vapid01 | None = (
+    Vapid01.from_pem(VAPID_PRIVATE_KEY.encode()) if PUSH_ENABLED else None
+)
 
 # Per-push HTTP timeout passed through to `requests` under pywebpush.
 # 10s is comfortable for healthy endpoints and bounded enough that a
@@ -45,7 +54,7 @@ def _send_sync(subscription: dict[str, Any], payload: dict[str, Any]) -> None:
     webpush(
         subscription_info=subscription,
         data=json.dumps(payload),
-        vapid_private_key=VAPID_PRIVATE_KEY,
+        vapid_private_key=_VAPID_KEY,
         vapid_claims={"sub": VAPID_CONTACT},
         timeout=_PUSH_TIMEOUT_S,
     )

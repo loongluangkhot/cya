@@ -23,20 +23,24 @@ interface Rect {
   x: number | null;
   y: number | null;
   width: number;
+  photo: number;
 }
 
-// Defaults & bounds. Width is in px; we keep height implicit (square thumbs +
-// label band, hard-coded by CSS). At MIN_WIDTH only one photo is visible;
-// MAX_WIDTH fits ~5 across plus the chrome.
+// Width controls how many thumbs fit horizontally (still scrolls beyond
+// that). Photo size is the thumb edge length in px — vertical drag grows
+// it, capped at MAX_PHOTO; the box auto-sizes around it.
 const MIN_WIDTH = 110;
 const MAX_WIDTH = 740;
 const DEFAULT_WIDTH = 220;
+const MIN_PHOTO = 60;
+const MAX_PHOTO = 200;
+const DEFAULT_PHOTO = 92;
 const RECT_KEY = 'cya:mug:rect:v1';
 
 function loadRect(): Rect {
   try {
     const raw = localStorage.getItem(RECT_KEY);
-    if (!raw) return { x: null, y: null, width: DEFAULT_WIDTH };
+    if (!raw) return { x: null, y: null, width: DEFAULT_WIDTH, photo: DEFAULT_PHOTO };
     const parsed = JSON.parse(raw) as Partial<Rect>;
     return {
       x: typeof parsed.x === 'number' ? parsed.x : null,
@@ -45,9 +49,13 @@ function loadRect(): Rect {
         typeof parsed.width === 'number'
           ? Math.max(MIN_WIDTH, Math.min(MAX_WIDTH, parsed.width))
           : DEFAULT_WIDTH,
+      photo:
+        typeof parsed.photo === 'number'
+          ? Math.max(MIN_PHOTO, Math.min(MAX_PHOTO, parsed.photo))
+          : DEFAULT_PHOTO,
     };
   } catch {
-    return { x: null, y: null, width: DEFAULT_WIDTH };
+    return { x: null, y: null, width: DEFAULT_WIDTH, photo: DEFAULT_PHOTO };
   }
 }
 
@@ -143,12 +151,18 @@ export function MugshotBoard({ roomId, users, takenAt, onClose }: MugshotBoardPr
     }
     const startW = box.getBoundingClientRect().width;
     const startX = e.clientX;
+    const startY = e.clientY;
+    const startPhoto = rect.photo;
     function move(ev: PointerEvent) {
-      const next = Math.max(
+      const nextW = Math.max(
         MIN_WIDTH,
         Math.min(MAX_WIDTH, startW + (ev.clientX - startX)),
       );
-      setRect((cur) => ({ ...cur, width: next }));
+      const nextPhoto = Math.max(
+        MIN_PHOTO,
+        Math.min(MAX_PHOTO, startPhoto + (ev.clientY - startY)),
+      );
+      setRect((cur) => ({ ...cur, width: nextW, photo: nextPhoto }));
     }
     function up() {
       try {
@@ -165,6 +179,7 @@ export function MugshotBoard({ roomId, users, takenAt, onClose }: MugshotBoardPr
 
   const style: React.CSSProperties = {
     width: rect.width,
+    ['--mug-thumb-size' as string]: `${rect.photo}px`,
     ...(rect.x !== null && rect.y !== null
       ? { left: rect.x, top: rect.y, right: 'auto', bottom: 'auto' }
       : {}),
