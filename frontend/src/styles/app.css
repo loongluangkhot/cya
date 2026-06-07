@@ -1150,9 +1150,8 @@ input, textarea, select { font-size: 16px; }
 .irc-log-scroll::-webkit-scrollbar { display: none; }
 .irc-row {
   font-family: var(--font-mono);
-  font-size: 13px;
+  font-size: 12px;
   color: var(--fg);
-  line-height: 1.35;
   background: var(--surface);
   padding: 2px 8px;
   border: 1px solid var(--scene-line);
@@ -1166,7 +1165,10 @@ input, textarea, select { font-size: 16px; }
   word-break: break-word;
   white-space: normal;
 }
-.irc-name { font-weight: 700; }
+.irc-name {
+  display: inline-block;
+  font-weight: 700; 
+}
 
 /* Shared touch/select reset for HUD buttons that double as control surfaces.
    Disables iOS long-press callout and lets pointer events pass straight to
@@ -1536,27 +1538,105 @@ input, textarea, select { font-size: 16px; }
   text-align: center;
 }
 
-/* Voice-message inline player — used in chat log + IRC overlay. */
+/* Voice-message inline player — used in chat log + IRC overlay.
+   Scrubber pill: [play] ━━━●━━━ time. The track is a clickable +
+   draggable seek surface so the listener can jump around in the clip. */
 .voice-row {
-  appearance: none;
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  padding: 4px 10px;
-  font: inherit;
-  color: inherit;
-  background: var(--surface);
-  border: var(--border-w) solid var(--fg);
-  border-radius: var(--radius-pill);
+  gap: 8px;
+  line-height: 1;
+  vertical-align: middle;
+}
+.voice-row.is-disabled { opacity: 0.5; }
+.voice-row-play {
+  appearance: none;
+  flex: none;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  background: transparent;
+  color: var(--muted);
+  border: 0;
   cursor: pointer;
+  line-height: 1;
+  transition: color 0.12s ease;
+  /* Match the time's translateY(-1px) so all three voice-row children
+     read as visually centred on the same line. */
+  transform: translateY(-1px);
 }
-.voice-row.is-playing { background: var(--fg); color: var(--bg); }
-.voice-row.is-expired { opacity: 0.5; cursor: not-allowed; }
-.voice-row.is-compact {
-  padding: 1px 8px;
-  font-size: 12px;
-  border-width: 1px;
+.voice-row-play:hover:not(:disabled),
+.voice-row-play:active:not(:disabled) {
+  color: var(--fg);
 }
+.voice-row-play:disabled { cursor: not-allowed; }
+.voice-row-play svg { display: block; }
+.voice-row-track {
+  position: relative;
+  flex: 1;
+  min-width: 120px;
+  height: 14px;
+  cursor: pointer;
+  touch-action: none;
+  /* Same -1px nudge as the play button + time so the bar reads as
+     visually centred with them. */
+  transform: translateY(-1px);
+  /* The hit area is taller than the visible bar so the thumb is easy
+     to grab on phones; the bar itself is rendered via ::before. */
+}
+.voice-row-track::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  height: 2px;
+  transform: translateY(-50%);
+  background: color-mix(in srgb, var(--fg) 18%, transparent);
+  border-radius: 1px;
+}
+.voice-row-fill {
+  position: absolute;
+  left: 0;
+  top: 50%;
+  height: 2px;
+  transform: translateY(-50%);
+  background: var(--fg);
+  border-radius: 1px;
+  pointer-events: none;
+}
+.voice-row-thumb {
+  position: absolute;
+  top: 50%;
+  width: 8px;
+  height: 8px;
+  background: var(--muted);
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  transition: background 0.12s ease;
+}
+.voice-row-track:hover .voice-row-thumb,
+.voice-row-track:active .voice-row-thumb {
+  background: var(--fg);
+}
+.voice-row-time {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  height: 14px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  min-width: 30px;
+  /* Space Mono's ascent is much larger than its descent, so the digit
+     ink sits below the line-box centre with line-height: 1. Nudge up
+     so the digits visually centre with the play icon. */
+  transform: translateY(-1px);
+}
+.voice-row.is-playing .voice-row-time { color: var(--fg); }
 
 /* Toasts */
 .toasts {
@@ -2413,7 +2493,10 @@ input, textarea, select { font-size: 16px; }
 }
 .chat-row + .chat-row { margin-top: 4px; }
 .chat-row .time { color: var(--muted); margin-right: 8px; }
-.chat-row .who { font-weight: 700; }
+.chat-row .who { 
+  font-weight: 700; 
+  display: inline-block 
+}
 .chat-row .text { margin-left: 6px; }
 .chat-empty {
   font-family: var(--font-body);

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
 import Icon from '../Icon';
 import { API_BASE } from '../../api';
 import { formatVoiceDuration } from '../../hooks/useRoomState';
@@ -9,8 +9,6 @@ interface VoicePlayerProps {
   durationMs: number;
   mime: string;
   expired: boolean;
-  /** Smaller variant for the IRC log overlay. */
-  compact?: boolean;
   /** When true, this player starts playback on the `cya:voice-arrived` event
    *  whose detail.messageId matches its own — used by the IRC log to
    *  autoplay freshly-arrived clips. */
@@ -22,10 +20,12 @@ interface VoicePlayerProps {
 // previous player's `release` fn so it can update its own UI to paused.
 let activeVoiceRelease: (() => void) | null = null;
 
-export function VoicePlayer({ roomId, messageId, durationMs, mime, expired, compact, autoplay }: VoicePlayerProps) {
+export function VoicePlayer({ roomId, messageId, durationMs, mime, expired, autoplay }: VoicePlayerProps) {
   const [playing, setPlaying] = useState(false);
   const [error, setError] = useState(false);
+  const [positionMs, setPositionMs] = useState(0);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const trackRef = useRef<HTMLDivElement | null>(null);
   // Stable handle: identifies *this* player in the global slot regardless
   // of re-renders. Storing the release callback in a ref + comparing by
   // identity avoids clearing the slot when someone else has since claimed it.
@@ -61,12 +61,16 @@ export function VoicePlayer({ roomId, messageId, durationMs, mime, expired, comp
       const el = new Audio(url);
       el.onended = () => {
         setPlaying(false);
+        setPositionMs(0);
         clearSlotIfMine();
       };
       el.onerror = () => {
         setError(true);
         setPlaying(false);
         clearSlotIfMine();
+      };
+      el.ontimeupdate = () => {
+        setPositionMs(Math.min(durationMs, Math.floor(el.currentTime * 1000)));
       };
       audioRef.current = el;
       return el;
@@ -99,7 +103,7 @@ export function VoicePlayer({ roomId, messageId, durationMs, mime, expired, comp
     }
   }
 
-  async function toggle() {
+  async function togglePlay() {
     if (expired) return;
     const el = audioRef.current;
     if (el && playing) {
@@ -109,6 +113,46 @@ export function VoicePlayer({ roomId, messageId, durationMs, mime, expired, comp
       return;
     }
     await startPlayback();
+  }
+
+  // Seek the audio element to `fraction` of the clip duration. If the
+  // audio isn't loaded yet, fetch + start playing from that offset.
+  async function seekToFraction(fraction: number) {
+    if (expired) return;
+    const clamped = Math.max(0, Math.min(1, fraction));
+    const targetMs = Math.floor(clamped * durationMs);
+    setPositionMs(targetMs);
+    const el = await ensureAudio();
+    if (!el) return;
+    try {
+      el.currentTime = targetMs / 1000;
+    } catch {
+      // Some browsers reject seeks before metadata is ready; ignore and
+      // the next timeupdate will catch up.
+    }
+    if (!playing) await startPlayback();
+  }
+
+  function trackFraction(clientX: number): number {
+    const track = trackRef.current;
+    if (!track) return 0;
+    const r = track.getBoundingClientRect();
+    if (r.width <= 0) return 0;
+    return (clientX - r.left) / r.width;
+  }
+
+  function onTrackDown(e: ReactPointerEvent<HTMLDivElement>) {
+    if (expired) return;
+    e.preventDefault();
+    e.currentTarget.setPointerCapture?.(e.pointerId);
+    void seekToFraction(trackFraction(e.clientX));
+  }
+  function onTrackMove(e: ReactPointerEvent<HTMLDivElement>) {
+    if (expired) return;
+    // Only react while the pointer is being captured (i.e. the user is
+    // actively dragging). buttons === 0 means hover, not drag.
+    if (e.buttons === 0) return;
+    void seekToFraction(trackFraction(e.clientX));
   }
 
   // Autoplay: when a fresh clip arrives, the room dispatches `cya:voice-arrived`
@@ -125,21 +169,45 @@ export function VoicePlayer({ roomId, messageId, durationMs, mime, expired, comp
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autoplay, expired, messageId]);
 
-  const label = expired
-    ? 'voice clip expired'
-    : error
-      ? 'voice clip unavailable'
-      : `voice ${formatVoiceDuration(durationMs)}`;
+  const disabled = expired || error;
+  const pct = durationMs > 0 ? Math.min(100, (positionMs / durationMs) * 100) : 0;
+  const timeLabel = playing
+    ? formatVoiceDuration(positionMs)
+    : formatVoiceDuration(durationMs);
+
   return (
-    <button
-      type="button"
-      className={`voice-row${compact ? ' is-compact' : ''}${expired || error ? ' is-expired' : ''}${playing ? ' is-playing' : ''}`}
-      onClick={toggle}
-      disabled={expired || error}
-      aria-label={expired ? 'voice clip expired' : playing ? 'pause voice message' : 'play voice message'}
+    <span
+      className={`voice-row${disabled ? ' is-disabled' : ''}${playing ? ' is-playing' : ''}`}
+      aria-label={expired ? 'voice clip expired' : error ? 'voice clip unavailable' : `voice clip ${formatVoiceDuration(durationMs)}`}
     >
-      <Icon name={playing ? 'pause' : expired ? 'mic-off' : 'play'} size={compact ? 11 : 14} />
-      <span>{label}</span>
-    </button>
+      <button
+        type="button"
+        className="voice-row-play"
+        onClick={togglePlay}
+        disabled={disabled}
+        aria-label={playing ? 'pause voice message' : 'play voice message'}
+      >
+        <Icon
+          name={playing ? 'pause' : expired ? 'mic-off' : 'play'}
+          size={16}
+        />
+      </button>
+      <div
+        ref={trackRef}
+        className="voice-row-track"
+        role="slider"
+        aria-label="seek"
+        aria-valuemin={0}
+        aria-valuemax={Math.max(0, Math.floor(durationMs / 1000))}
+        aria-valuenow={Math.max(0, Math.floor(positionMs / 1000))}
+        aria-disabled={disabled}
+        onPointerDown={disabled ? undefined : onTrackDown}
+        onPointerMove={disabled ? undefined : onTrackMove}
+      >
+        <span className="voice-row-fill" style={{ width: `${pct}%` }} />
+        <span className="voice-row-thumb" style={{ left: `${pct}%` }} />
+      </div>
+      <span className="voice-row-time">{timeLabel}</span>
+    </span>
   );
 }
