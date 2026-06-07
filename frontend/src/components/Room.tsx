@@ -103,6 +103,14 @@ export default function Room({ roomId, onEditMe, onLeave, onMemoPersist }: RoomP
   const ytPlayer = useYoutubePlayer({
     playback,
     onEnded: () => advanceQueue(playback.trackUri),
+    onLocalPlaybackChange: (isPlaying, positionMs) => {
+      if (!playback.trackUri) return;
+      changePlayback({
+        trackUri: playback.trackUri,
+        isPlaying,
+        positionMs,
+      });
+    },
   });
 
   const [sheet, setSheet] = useState<SheetId>(null);

@@ -44,6 +44,10 @@ interface UseYoutubePlayerOpts {
   playback: PlaybackState;
   /** Called when the video ends naturally so the room can advance. */
   onEnded: () => void;
+  /** Fired when the iframe's own play/pause control flips state away
+      from what the room thinks. Lets the room broadcast the change so
+      every listener (and our own UI buttons) stay in sync. */
+  onLocalPlaybackChange?: (isPlaying: boolean, positionMs: number) => void;
 }
 
 /** When in doubt, don't seek — small drift is fine; only correct when
@@ -81,7 +85,11 @@ function validateVolume(v: unknown): number | null {
   return Math.max(0, Math.min(100, Math.round(v)));
 }
 
-export function useYoutubePlayer({ playback, onEnded }: UseYoutubePlayerOpts): UseYoutubePlayerResult {
+export function useYoutubePlayer({
+  playback,
+  onEnded,
+  onLocalPlaybackChange,
+}: UseYoutubePlayerOpts): UseYoutubePlayerResult {
   const [enabled, setEnabled] = useStoredState<boolean>(OPT_IN_KEY, true, validateBool);
   const [volume, setVolumeStored] = useStoredState<number>(VOLUME_KEY, 80, validateVolume);
   const [muted, setMutedStored] = useStoredState<boolean>(MUTED_KEY, false, validateBool);
@@ -101,6 +109,8 @@ export function useYoutubePlayer({ playback, onEnded }: UseYoutubePlayerOpts): U
   const pollRef = useRef<number | null>(null);
   const onEndedRef = useRef(onEnded);
   onEndedRef.current = onEnded;
+  const onLocalPlaybackChangeRef = useRef(onLocalPlaybackChange);
+  onLocalPlaybackChangeRef.current = onLocalPlaybackChange;
   // The watchdog reads playback state from a ref so the interval
   // callback (created once inside buildPlayer's onReady) never sees a
   // stale isPlaying value when the room toggles play/pause.
@@ -213,21 +223,6 @@ export function useYoutubePlayer({ playback, onEnded }: UseYoutubePlayerOpts): U
               // a slow first chunk doesn't get treated as "stuck".
               if (state === Y.PlayerState.PLAYING) hasEverPlayedRef.current = true;
 
-              // PAUSED while the room says we should be playing — covers
-              // any local auto-pause (idle prompt, ad transition, user
-              // clicking the iframe's own pause button) the rest of the
-              // hook doesn't separately model.
-              if (
-                state === Y.PlayerState.PAUSED &&
-                playbackRef.current.isPlaying
-              ) {
-                try {
-                  p.playVideo();
-                } catch {
-                  // ignore
-                }
-              }
-
               // Stuck BUFFERING — YT's embedded recovery often can't
               // self-unwedge once the buffer drains and the next
               // segment fetch wedges. Two-stage escalation: seek-nudge
@@ -306,9 +301,37 @@ export function useYoutubePlayer({ playback, onEnded }: UseYoutubePlayerOpts): U
           onStateChange: (e) => {
             const Y = window.YT;
             if (!Y) return;
-            if (e.data === Y.PlayerState.PLAYING) setIsPlaying(true);
-            else if (e.data === Y.PlayerState.PAUSED) setIsPlaying(false);
-            else if (e.data === Y.PlayerState.ENDED) {
+            if (e.data === Y.PlayerState.PLAYING) {
+              setIsPlaying(true);
+              // If the room thinks we're paused, the user just hit the
+              // iframe's own play control. Broadcast so every listener
+              // (and our own play/pause button) catches up.
+              if (
+                !playbackRef.current.isPlaying &&
+                playbackRef.current.trackUri
+              ) {
+                const posMs = Math.max(
+                  0,
+                  Math.floor((e.target.getCurrentTime() || 0) * 1000),
+                );
+                onLocalPlaybackChangeRef.current?.(true, posMs);
+              }
+            } else if (e.data === Y.PlayerState.PAUSED) {
+              setIsPlaying(false);
+              // Symmetric to PLAYING above: the iframe's pause button
+              // was clicked while the room was playing. Without this the
+              // room-level play/pause button would stay out of sync.
+              if (
+                playbackRef.current.isPlaying &&
+                playbackRef.current.trackUri
+              ) {
+                const posMs = Math.max(
+                  0,
+                  Math.floor((e.target.getCurrentTime() || 0) * 1000),
+                );
+                onLocalPlaybackChangeRef.current?.(false, posMs);
+              }
+            } else if (e.data === Y.PlayerState.ENDED) {
               setIsPlaying(false);
               onEndedRef.current();
             }
