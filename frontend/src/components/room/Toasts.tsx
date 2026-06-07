@@ -1,7 +1,13 @@
-export function Toasts({ items }: { items: { id: string; text: string }[] }) {
+export function Toasts({
+  items,
+  marqueeActive = false,
+}: {
+  items: { id: string; text: string }[];
+  marqueeActive?: boolean;
+}) {
   if (items.length === 0) return null;
   return (
-    <div className="toasts">
+    <div className={`toasts${marqueeActive ? ' is-with-marquee' : ''}`}>
       {items.map((t) => (
         <div key={t.id} className="toast">{t.text}</div>
       ))}

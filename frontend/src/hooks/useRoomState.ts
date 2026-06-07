@@ -68,6 +68,7 @@ export interface UseRoomStateResult {
   addManyToQueue: (uris: string[]) => void;
   playCollection: (uris: string[]) => void;
   removeFromQueue: (uri: string, index: number) => void;
+  reorderQueue: (fromIndex: number, toIndex: number) => void;
   advanceQueue: (afterTrackUri: string | null) => void;
   clearQueue: () => void;
   submitMugshot: (image: ArrayBuffer, mime: string) => void;
@@ -591,6 +592,22 @@ export function useRoomState({ onToast }: UseRoomStateOpts): UseRoomStateResult 
     });
     socket.emit('removeFromQueue', { uri, index });
   }
+  function reorderQueue(fromIndex: number, toIndex: number) {
+    if (fromIndex === toIndex) return;
+    // Optimistic: snap the list locally so the grip drag feels
+    // responsive. The server echoes a queueChanged that matches when it
+    // confirms; if it rejects (race with remove/advance), the next
+    // queueChanged will resync us to truth.
+    setQueue((q) => {
+      if (fromIndex < 0 || fromIndex >= q.length) return q;
+      if (toIndex < 0 || toIndex >= q.length) return q;
+      const next = q.slice();
+      const [item] = next.splice(fromIndex, 1);
+      next.splice(toIndex, 0, item);
+      return next;
+    });
+    socket.emit('reorderQueue', { fromIndex, toIndex });
+  }
   function advanceQueue(afterTrackUri: string | null) {
     socket.emit('advanceQueue', { afterTrackUri });
   }
@@ -642,6 +659,7 @@ export function useRoomState({ onToast }: UseRoomStateOpts): UseRoomStateResult 
     addManyToQueue,
     playCollection,
     removeFromQueue,
+    reorderQueue,
     advanceQueue,
     clearQueue,
     submitMugshot,

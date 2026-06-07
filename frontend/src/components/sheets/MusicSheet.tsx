@@ -2,9 +2,7 @@ import { Sheet } from './Sheet';
 import Icon from '../Icon';
 import { MusicGate } from './music/MusicGate';
 import { MusicScreen } from './music/MusicScreen';
-import type { MusicScreenProps, PlayerMode } from './music/types';
-
-export type { PlayerMode };
+import type { MusicScreenProps } from './music/types';
 
 interface MusicSheetProps extends MusicScreenProps {
   open: boolean;

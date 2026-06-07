@@ -89,6 +89,11 @@ class AdvanceQueuePayload(TypedDict, total=False):
     afterTrackUri: str | None
 
 
+class ReorderQueuePayload(TypedDict, total=False):
+    fromIndex: int
+    toIndex: int
+
+
 class UpdateAmbientPayload(TypedDict, total=False):
     time: Literal["dawn", "day", "dusk", "night"]
     weather: Literal["clear", "rain", "snow", "fog"]

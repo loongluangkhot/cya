@@ -1,11 +1,9 @@
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type RefObject } from 'react';
 import Icon from '../Icon';
 import { useYoutubeMeta } from '../../hooks/useYoutubeMeta';
-import { thumbUrl } from '../../youtube';
 
 interface RoomVideoProps {
   trackId: string;
-  audioOnly: boolean;
   isPlaying: boolean;
   hasQueue: boolean;
   stageRef: RefObject<HTMLDivElement>;
@@ -13,6 +11,8 @@ interface RoomVideoProps {
   onTogglePlay: () => void;
   onNext: () => void;
   onClose: () => void;
+  /** Marquee strip visible — shift default top so the popup doesn't overlap. */
+  marqueeActive?: boolean;
 }
 
 interface Rect {
@@ -54,7 +54,6 @@ function saveRect(rect: Rect) {
 
 export function RoomVideo({
   trackId,
-  audioOnly,
   isPlaying,
   hasQueue,
   stageRef,
@@ -62,6 +61,7 @@ export function RoomVideo({
   onTogglePlay,
   onNext,
   onClose,
+  marqueeActive = false,
 }: RoomVideoProps) {
   const meta = useYoutubeMeta(trackId);
   const boxRef = useRef<HTMLDivElement | null>(null);
@@ -160,21 +160,17 @@ export function RoomVideo({
       : {}),
   };
 
+  const cls = [
+    'room-video',
+    moved ? 'is-dragged' : '',
+    !moved && marqueeActive ? 'is-default-with-marquee' : '',
+  ]
+    .filter(Boolean)
+    .join(' ');
+
   return (
-    <div
-      ref={boxRef}
-      className={`room-video${audioOnly ? ' is-audio' : ''}${moved ? ' is-dragged' : ''}`}
-      style={style}
-    >
-      {audioOnly ? (
-        <img
-          src={meta.art || thumbUrl(trackId)}
-          className="room-video-art"
-          alt=""
-        />
-      ) : (
-        <div ref={stageRef} className="room-video-frame" />
-      )}
+    <div ref={boxRef} className={cls} style={style}>
+      <div ref={stageRef} className="room-video-frame" />
       <div className="room-video-bar">
         <button
           type="button"

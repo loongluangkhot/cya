@@ -12,10 +12,11 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from config import CORS_ORIGINS, CORS_ORIGINS_FOR_SIO
+from persistence import lifespan
 
 sio = socketio.AsyncServer(async_mode="asgi", cors_allowed_origins=CORS_ORIGINS_FOR_SIO)
 
-fastapi_app = FastAPI()
+fastapi_app = FastAPI(lifespan=lifespan)
 fastapi_app.add_middleware(
     CORSMiddleware,
     allow_origins=CORS_ORIGINS,

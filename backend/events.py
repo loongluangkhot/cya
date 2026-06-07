@@ -55,6 +55,7 @@ from payloads import (
     PlayCollectionPayload,
     RemoveFromQueuePayload,
     RemoveMarqueeFeedPayload,
+    ReorderQueuePayload,
     SubmitMugshotPayload,
     SubscribePushPayload,
     UpdateAmbientPayload,
@@ -586,6 +587,33 @@ async def on_remove_from_queue(sid: str, payload: RemoveFromQueuePayload) -> Non
             room.queue.remove(uri)
         except ValueError:
             return
+    await sio.emit("queueChanged", {"queue": list(room.queue)}, room=room.id)
+
+
+@sio.on("reorderQueue")
+async def on_reorder_queue(sid: str, payload: ReorderQueuePayload) -> None:
+    """Move a queue item from one index to another. Out-of-range or no-op
+    moves are silently ignored — the client could race against an
+    advanceQueue/removeFromQueue that shrunk the list, in which case we
+    just drop the request rather than throw."""
+    room = await _current_room(sid)
+    if room is None:
+        return
+    n = len(room.queue)
+    if n < 2:
+        return
+    raw_from = payload.get("fromIndex")
+    raw_to = payload.get("toIndex")
+    # Require both — defaulting either to 0 would silently turn a malformed
+    # payload into a real reorder.
+    if not isinstance(raw_from, int) or not isinstance(raw_to, int):
+        return
+    from_idx = max(0, min(n - 1, raw_from))
+    to_idx = max(0, min(n - 1, raw_to))
+    if from_idx == to_idx:
+        return
+    item = room.queue.pop(from_idx)
+    room.queue.insert(to_idx, item)
     await sio.emit("queueChanged", {"queue": list(room.queue)}, room=room.id)
 
 

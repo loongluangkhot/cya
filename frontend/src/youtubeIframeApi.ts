@@ -23,6 +23,19 @@ export interface YTPlayer {
   seekTo(sec: number, allow?: boolean): void;
   getCurrentTime(): number;
   getDuration(): number;
+  /** YT.PlayerState code: -1 UNSTARTED, 0 ENDED, 1 PLAYING, 2 PAUSED,
+   *  3 BUFFERING, 5 CUED. Used by the watchdog to detect stuck states. */
+  getPlayerState(): number;
+  /** Reload a video into the existing player instance — gentler than
+   *  destroying + rebuilding the iframe. Used as the last-resort
+   *  unwedge when seekTo can't get us out of stuck BUFFERING. */
+  loadVideoById(opts: { videoId: string; startSeconds?: number }): void;
+  /** Volume in 0..100. The IFrame API rounds and clamps internally. */
+  setVolume(v: number): void;
+  getVolume(): number;
+  mute(): void;
+  unMute(): void;
+  isMuted(): boolean;
   destroy(): void;
   /** Returns the iframe element the player owns. Used to relocate the
    *  player between containers without destroying it (which would

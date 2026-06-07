@@ -1,46 +1,61 @@
-import type { RefObject } from 'react';
 import Icon from '../../Icon';
 import { useYoutubeMeta } from '../../../hooks/useYoutubeMeta';
 import { thumbUrl } from '../../../youtube';
-import { ProgressBar } from './ProgressBar';
-import { PlayerModeRow } from './PlayerModeRow';
-import type { PlayerMode } from './types';
+import { VolumeControl } from './VolumeControl';
 
 interface NowCardProps {
   trackId: string;
-  playerMode: PlayerMode;
   isPlaying: boolean;
   currentSec: number;
   durationSec: number;
-  stageRef: RefObject<HTMLDivElement>;
   hasNext: boolean;
+  volume: number;
+  muted: boolean;
   onTogglePlay: () => void;
-  onRestart: () => void;
+  /** Jump to a position (ms). The progress bar's click handler computes
+      the target from the click X relative to the bar's bounds. */
+  onSeek: (positionMs: number) => void;
   onNext: () => void;
-  onChangePlayerMode: (mode: PlayerMode) => void;
+  onChangeVolume: (v: number) => void;
+  onToggleMute: () => void;
+}
+
+function fmtTime(sec: number): string {
+  if (!Number.isFinite(sec) || sec < 0) return '0:00';
+  const total = Math.floor(sec);
+  const m = Math.floor(total / 60);
+  const s = total % 60;
+  return `${m}:${s.toString().padStart(2, '0')}`;
 }
 
 export function NowCard({
   trackId,
-  playerMode,
   isPlaying,
   currentSec,
   durationSec,
-  stageRef,
   hasNext,
+  volume,
+  muted,
   onTogglePlay,
-  onRestart,
+  onSeek,
   onNext,
-  onChangePlayerMode,
+  onChangeVolume,
+  onToggleMute,
 }: NowCardProps) {
   const meta = useYoutubeMeta(trackId);
+  const pct = durationSec > 0 ? Math.min(100, (currentSec / durationSec) * 100) : 0;
+  const remainingSec = Math.max(0, durationSec - currentSec);
+
+  function handleBarClick(e: React.MouseEvent<HTMLDivElement>) {
+    if (durationSec <= 0) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    if (rect.width <= 0) return;
+    const fraction = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+    onSeek(Math.floor(fraction * durationSec * 1000));
+  }
+
   return (
     <div>
-      {playerMode === 'theater' && (
-        <div className="yt-theater">
-          <div ref={stageRef} className="yt-theater-frame" />
-        </div>
-      )}
       <div className="music-now">
         <img
           src={meta.art || thumbUrl(trackId)}
@@ -48,40 +63,50 @@ export function NowCard({
           alt=""
           style={{ objectFit: 'cover' }}
         />
-        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 4, minWidth: 0 }}>
-          <div className="h-display yt-clamp" style={{ fontSize: 17 }}>
-            {meta.title}
-          </div>
+        <div className="music-now-meta">
+          <div className="music-now-title yt-clamp">{meta.title}</div>
           <div className="body-text yt-clamp">{meta.channel}</div>
         </div>
-        <div className="music-now-controls">
-          <button type="button" className="row-icon-btn" aria-label="restart" onClick={onRestart}>
-            <Icon name="prev" size={14} />
-          </button>
-          <button
-            type="button"
-            className="row-icon-btn primary"
-            aria-label={isPlaying ? 'pause' : 'play'}
-            onClick={onTogglePlay}
-          >
-            <Icon name={isPlaying ? 'pause' : 'play'} size={14} />
-          </button>
-          <button
-            type="button"
-            className="row-icon-btn"
-            aria-label="next"
-            onClick={onNext}
-            disabled={!hasNext}
-            style={{ opacity: hasNext ? 1 : 0.4 }}
-          >
-            <Icon name="next" size={14} />
-          </button>
-        </div>
+        <button
+          type="button"
+          className="row-icon-btn primary"
+          aria-label={isPlaying ? 'pause' : 'play'}
+          onClick={onTogglePlay}
+        >
+          <Icon name={isPlaying ? 'pause' : 'play'} size={15} />
+        </button>
+        <button
+          type="button"
+          className="row-icon-btn ghost"
+          aria-label="next"
+          onClick={onNext}
+          disabled={!hasNext}
+        >
+          <Icon name="next" size={15} />
+        </button>
+        <VolumeControl
+          volume={volume}
+          muted={muted}
+          onChangeVolume={onChangeVolume}
+          onToggleMute={onToggleMute}
+        />
       </div>
-      <div style={{ margin: '-8px 0 18px' }}>
-        <ProgressBar cur={currentSec} dur={durationSec} />
+      <div
+        className="music-bar"
+        onClick={handleBarClick}
+        title="seek"
+        role="slider"
+        aria-label="seek"
+        aria-valuemin={0}
+        aria-valuemax={Math.max(0, Math.floor(durationSec))}
+        aria-valuenow={Math.max(0, Math.floor(currentSec))}
+      >
+        <span style={{ width: `${pct}%` }} />
       </div>
-      <PlayerModeRow value={playerMode} onChange={onChangePlayerMode} />
+      <div className="music-bar-times">
+        <span>{fmtTime(currentSec)}</span>
+        <span>-{fmtTime(remainingSec)}</span>
+      </div>
     </div>
   );
 }

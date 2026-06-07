@@ -15,7 +15,7 @@ import { MarqueeSheet } from './sheets/MarqueeSheet';
 import { MemoEditorSheet } from './sheets/MemoEditorSheet';
 import { MindsSheet } from './sheets/MindsSheet';
 import { MugshotSheet } from './sheets/MugshotSheet';
-import { MusicSheet, type PlayerMode } from './sheets/MusicSheet';
+import { MusicSheet } from './sheets/MusicSheet';
 import { PeopleSheet } from './sheets/PeopleSheet';
 import { SettingsSheet } from './sheets/SettingsSheet';
 import { useMarquee } from '../hooks/useMarquee';
@@ -48,15 +48,11 @@ type SheetId =
   | 'marquee'
   | null;
 
-const PLAYER_MODE_KEY = 'cya:yt:mode:v1';
 const YT_POPUP_KEY = 'cya:yt:popup:v1';
 const MUG_OPT_IN_KEY = 'cya:mug:opt-in:v1';
 const MUG_POPUP_KEY = 'cya:mug:popup:v1';
 const VOICE_AUTOPLAY_KEY = 'cya:voice:autoplay:v1';
 
-function validatePlayerMode(v: unknown): PlayerMode | null {
-  return v === 'theater' || v === 'audio' ? v : null;
-}
 function validateBool(v: unknown): boolean | null {
   return typeof v === 'boolean' ? v : null;
 }
@@ -86,6 +82,7 @@ export default function Room({ roomId, onEditMe, onLeave, onMemoPersist }: RoomP
     addManyToQueue,
     playCollection,
     removeFromQueue,
+    reorderQueue,
     advanceQueue,
     clearQueue,
     submitMugshot,
@@ -97,7 +94,6 @@ export default function Room({ roomId, onEditMe, onLeave, onMemoPersist }: RoomP
   } = useRoomState({ onToast: pushToast });
   const { nudge, wandering, setWandering } = useMovement({ meId, users, setUsers });
 
-  const [playerMode, setPlayerMode] = useStoredState<PlayerMode>(PLAYER_MODE_KEY, 'audio', validatePlayerMode);
   const [roomVideoOn, setRoomVideoOn] = useStoredState<boolean>(
     YT_POPUP_KEY,
     true,
@@ -107,6 +103,14 @@ export default function Room({ roomId, onEditMe, onLeave, onMemoPersist }: RoomP
   const ytPlayer = useYoutubePlayer({
     playback,
     onEnded: () => advanceQueue(playback.trackUri),
+    onLocalPlaybackChange: (isPlaying, positionMs) => {
+      if (!playback.trackUri) return;
+      changePlayback({
+        trackUri: playback.trackUri,
+        isPlaying,
+        positionMs,
+      });
+    },
   });
 
   const [sheet, setSheet] = useState<SheetId>(null);
@@ -152,9 +156,10 @@ export default function Room({ roomId, onEditMe, onLeave, onMemoPersist }: RoomP
   const marquee = useMarquee({ roomMarqueeFeeds, roomMarqueeItems });
   const [marqueeArticleId, setMarqueeArticleId] = useState<string | null>(null);
 
-  // Player stays mounted across sheet open/close — we move it between
-  // surfaces (music sheet stage, in-room video, hidden audio host).
-  const sheetStageRef = useRef<HTMLDivElement | null>(null);
+  // Player stays mounted across sheet open/close. The music sheet is
+  // audio-only now (no in-sheet theater frame), so the only two
+  // surfaces are: the in-room video popup (when the user has it
+  // enabled) and a hidden host that keeps audio alive otherwise.
   const roomStageRef = useRef<HTMLDivElement | null>(null);
   const audioHostRef = useRef<HTMLDivElement | null>(null);
 
@@ -162,21 +167,15 @@ export default function Room({ roomId, onEditMe, onLeave, onMemoPersist }: RoomP
     setRoomVideoOn((v) => !v);
   }
 
-  // Decide which surface the player mounts into. Priority:
-  // audio-only → hidden host; music sheet open → sheet; else if the
-  // in-room popup is on → room video; else → hidden host (audio keeps going).
-  // startAt extrapolates the room's last reported position by the time
-  // elapsed since that report, so a new joiner drops in mid-track.
+  // Decide which surface the player mounts into. startAt extrapolates
+  // the room's last reported position by the time elapsed since that
+  // report, so a new joiner drops in mid-track.
   useEffect(() => {
     if (!ytPlayer.enabled || !playback.trackUri) {
       ytPlayer.attach(null, null);
       return;
     }
-    let container: HTMLElement | null;
-    if (playerMode === 'audio') container = audioHostRef.current;
-    else if (sheet === 'music') container = sheetStageRef.current;
-    else if (roomVideoOn) container = roomStageRef.current;
-    else container = audioHostRef.current;
+    const container = roomVideoOn ? roomStageRef.current : audioHostRef.current;
     if (!container) return;
     const elapsedMs = playback.isPlaying
       ? Date.now() - playback.positionUpdatedAt
@@ -188,7 +187,7 @@ export default function Room({ roomId, onEditMe, onLeave, onMemoPersist }: RoomP
       playing: playback.isPlaying,
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ytPlayer.enabled, playback.trackUri, playerMode, sheet, roomVideoOn]);
+  }, [ytPlayer.enabled, playback.trackUri, roomVideoOn]);
 
   function onSend(text: string) {
     if (!text.trim()) return;
@@ -204,9 +203,15 @@ export default function Room({ roomId, onEditMe, onLeave, onMemoPersist }: RoomP
   // Shared playback controls — these flip room state, which every
   // connected client (including this one) reacts to via the sync effect
   // inside useYoutubePlayer.
-  function dockRestart() {
+  function dockSeek(positionMs: number) {
     if (!playback.trackUri) return;
-    changePlayback({ trackUri: playback.trackUri, isPlaying: true, positionMs: 0 });
+    // Preserve current play/pause state on seek — only the playhead
+    // moves. Restart (positionMs=0) goes through this path too.
+    changePlayback({
+      trackUri: playback.trackUri,
+      isPlaying: playback.isPlaying,
+      positionMs: Math.max(0, Math.floor(positionMs)),
+    });
   }
   function dockTogglePlay() {
     if (!playback.trackUri) return;
@@ -236,11 +241,13 @@ export default function Room({ roomId, onEditMe, onLeave, onMemoPersist }: RoomP
 
   const peersById: Record<string, User> = Object.fromEntries(users.map((u) => [u.id, u]));
 
-  const showRoomVideo =
-    ytPlayer.enabled &&
-    !!playback.trackUri &&
-    sheet !== 'music' &&
-    roomVideoOn;
+  // The in-room popup mirrors the music sheet's screen toggle and is
+  // shown whenever music is on with a track loaded. It stays mounted
+  // behind the music sheet when open — the user disables it via the
+  // popup's own close button (or the sheet's screen toggle).
+  const showRoomVideo = ytPlayer.enabled && !!playback.trackUri && roomVideoOn;
+  const marqueeActive =
+    marquee.optIn && marquee.stripOn && marquee.mergedItems.length > 0;
 
   return (
     <div className="room-root">
@@ -265,7 +272,6 @@ export default function Room({ roomId, onEditMe, onLeave, onMemoPersist }: RoomP
         {showRoomVideo && playback.trackUri && (
           <RoomVideo
             trackId={playback.trackUri}
-            audioOnly={playerMode === 'audio'}
             isPlaying={playback.isPlaying}
             hasQueue={queue.length > 0}
             stageRef={roomStageRef}
@@ -273,6 +279,7 @@ export default function Room({ roomId, onEditMe, onLeave, onMemoPersist }: RoomP
             onTogglePlay={dockTogglePlay}
             onNext={dockNext}
             onClose={() => setRoomVideoOn(false)}
+            marqueeActive={marqueeActive}
           />
         )}
 
@@ -301,7 +308,7 @@ export default function Room({ roomId, onEditMe, onLeave, onMemoPersist }: RoomP
           onLeave={onLeave}
         />
 
-        {marquee.optIn && marquee.stripOn && marquee.mergedItems.length > 0 && (
+        {marqueeActive && (
           <MarqueeStrip
             items={marquee.mergedItems}
             feedTitle={marquee.feedTitle}
@@ -325,6 +332,7 @@ export default function Room({ roomId, onEditMe, onLeave, onMemoPersist }: RoomP
             users={users}
             takenAt={mugshotsTakenAt}
             onClose={() => setMugshotBoardOn(false)}
+            marqueeActive={marqueeActive}
           />
         )}
       </div>
@@ -357,7 +365,7 @@ export default function Room({ roomId, onEditMe, onLeave, onMemoPersist }: RoomP
         }}
       />
 
-      <Toasts items={toasts} />
+      <Toasts items={toasts} marqueeActive={marqueeActive} />
 
       <PeopleSheet
         open={sheet === 'people'}
@@ -381,19 +389,21 @@ export default function Room({ roomId, onEditMe, onLeave, onMemoPersist }: RoomP
         onDisable={turnOffMusic}
         playback={playback}
         queue={queue}
-        stageRef={sheetStageRef}
-        playerMode={playerMode}
-        onChangePlayerMode={setPlayerMode}
         currentSec={ytPlayer.currentSec}
         durationSec={ytPlayer.durationSec}
+        volume={ytPlayer.volume}
+        muted={ytPlayer.muted}
+        onChangeVolume={ytPlayer.setVolume}
+        onToggleMute={() => ytPlayer.setMuted(!ytPlayer.muted)}
         onTogglePlay={dockTogglePlay}
-        onRestart={dockRestart}
+        onSeek={dockSeek}
         onNext={dockNext}
         onPlay={playTrack}
         onAddToQueue={addToQueue}
         onPlayCollection={playCollection}
         onAddManyToQueue={addManyToQueue}
         onRemoveFromQueue={removeFromQueue}
+        onReorderQueue={reorderQueue}
         onClearQueue={clearQueue}
         onExpandPlaylist={expandPlaylist}
         roomVideoOn={roomVideoOn}

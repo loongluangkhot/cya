@@ -38,7 +38,6 @@ export function IrcLog({ messages, peersById, roomId, voiceAutoplay }: IrcLogPro
                     durationMs={m.audioDurationMs}
                     mime={m.audioMime}
                     expired={m.audioExpired}
-                    compact
                     autoplay={voiceAutoplay}
                   />
                 </span>
