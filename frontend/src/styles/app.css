@@ -1973,7 +1973,7 @@ input, textarea, select { font-size: 16px; }
 .music-bar {
   height: 4px;
   background: color-mix(in srgb, var(--fg) 14%, transparent);
-  margin: 13px 0 16px;
+  margin: 13px 0 5px;
   cursor: pointer;
 }
 .music-bar span {
@@ -1981,6 +1981,15 @@ input, textarea, select { font-size: 16px; }
   height: 100%;
   background: var(--fg);
   transition: width 0.25s linear;
+}
+.music-bar-times {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 16px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--muted);
+  letter-spacing: var(--tracking);
 }
 
 /* ── volume: compact popover anchored under the speaker button. ──── */

@@ -17,7 +17,9 @@ export interface MusicScreenProps {
   onChangeVolume: (v: number) => void;
   onToggleMute: () => void;
   onTogglePlay: () => void;
-  onRestart: () => void;
+  /** Jump the room's playhead. Click-to-seek on the progress bar feeds
+      this; seeking to 0 is also how "restart" is expressed now. */
+  onSeek: (positionMs: number) => void;
   onNext: () => void;
   onPlay: (videoId: string) => void;
   onAddToQueue: (videoId: string) => void;

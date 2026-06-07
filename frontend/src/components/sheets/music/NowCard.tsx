@@ -12,12 +12,20 @@ interface NowCardProps {
   volume: number;
   muted: boolean;
   onTogglePlay: () => void;
-  /** Restart the current track. Wired to the progress bar — clicking
-      anywhere on the bar jumps back to 0. No separate restart button. */
-  onRestart: () => void;
+  /** Jump to a position (ms). The progress bar's click handler computes
+      the target from the click X relative to the bar's bounds. */
+  onSeek: (positionMs: number) => void;
   onNext: () => void;
   onChangeVolume: (v: number) => void;
   onToggleMute: () => void;
+}
+
+function fmtTime(sec: number): string {
+  if (!Number.isFinite(sec) || sec < 0) return '0:00';
+  const total = Math.floor(sec);
+  const m = Math.floor(total / 60);
+  const s = total % 60;
+  return `${m}:${s.toString().padStart(2, '0')}`;
 }
 
 export function NowCard({
@@ -29,13 +37,23 @@ export function NowCard({
   volume,
   muted,
   onTogglePlay,
-  onRestart,
+  onSeek,
   onNext,
   onChangeVolume,
   onToggleMute,
 }: NowCardProps) {
   const meta = useYoutubeMeta(trackId);
   const pct = durationSec > 0 ? Math.min(100, (currentSec / durationSec) * 100) : 0;
+  const remainingSec = Math.max(0, durationSec - currentSec);
+
+  function handleBarClick(e: React.MouseEvent<HTMLDivElement>) {
+    if (durationSec <= 0) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    if (rect.width <= 0) return;
+    const fraction = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+    onSeek(Math.floor(fraction * durationSec * 1000));
+  }
+
   return (
     <div>
       <div className="music-now">
@@ -73,16 +91,21 @@ export function NowCard({
           onToggleMute={onToggleMute}
         />
       </div>
-      {/* Click anywhere on the bar to restart — replaces the per-row
-          restart button from the old layout. */}
       <div
         className="music-bar"
-        onClick={onRestart}
-        title="restart"
-        role="button"
-        aria-label="restart"
+        onClick={handleBarClick}
+        title="seek"
+        role="slider"
+        aria-label="seek"
+        aria-valuemin={0}
+        aria-valuemax={Math.max(0, Math.floor(durationSec))}
+        aria-valuenow={Math.max(0, Math.floor(currentSec))}
       >
         <span style={{ width: `${pct}%` }} />
+      </div>
+      <div className="music-bar-times">
+        <span>{fmtTime(currentSec)}</span>
+        <span>-{fmtTime(remainingSec)}</span>
       </div>
     </div>
   );

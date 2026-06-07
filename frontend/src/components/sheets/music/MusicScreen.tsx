@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { NowCard } from './NowCard';
 import { PasteBar } from './PasteBar';
 import { QueueRow } from './QueueRow';
@@ -17,7 +17,7 @@ export function MusicScreen(props: MusicScreenProps) {
     onChangeVolume,
     onToggleMute,
     onTogglePlay,
-    onRestart,
+    onSeek,
     onNext,
     onPlay,
     onAddToQueue,
@@ -115,6 +115,27 @@ export function MusicScreen(props: MusicScreenProps) {
     setActiveIndex(-1);
   }
 
+  // Safety net: while a drag is in flight, listen for pointerup /
+  // pointercancel on the window. The row's own handler usually catches
+  // release, but if a remote queueChanged shrinks the queue so that the
+  // grip span unmounts mid-drag (pointer capture is released, no
+  // pointerup handler on the new element under the pointer), this is
+  // what unsticks the "lifted" row.
+  useEffect(() => {
+    if (activeIndex < 0) return;
+    function clear() {
+      dragFromRef.current = -1;
+      draggedIdRef.current = null;
+      setActiveIndex(-1);
+    }
+    window.addEventListener('pointerup', clear);
+    window.addEventListener('pointercancel', clear);
+    return () => {
+      window.removeEventListener('pointerup', clear);
+      window.removeEventListener('pointercancel', clear);
+    };
+  }, [activeIndex]);
+
   return (
     <div>
       {trackId ? (
@@ -127,7 +148,7 @@ export function MusicScreen(props: MusicScreenProps) {
           volume={volume}
           muted={muted}
           onTogglePlay={onTogglePlay}
-          onRestart={onRestart}
+          onSeek={onSeek}
           onNext={onNext}
           onChangeVolume={onChangeVolume}
           onToggleMute={onToggleMute}
@@ -157,8 +178,15 @@ export function MusicScreen(props: MusicScreenProps) {
       ) : (
         <div className="music-qlist">
           {visible.map((id, i) => (
+            // Key by index, not by videoId. Index keys are intentional:
+            // they keep each row's DOM instance (and its captured
+            // pointer) stable across reorders, so the grip the user
+            // grabbed survives an optimistic re-render. The row's own
+            // content is purely a function of props (videoId →
+            // useYoutubeMeta), so there's no local state to bleed.
+            // Using `${id}-${i}` would unmount on every reorder.
             <QueueRow
-              key={`${id}-${i}`}
+              key={i}
               videoId={id}
               index={i}
               lifting={activeIndex === i}

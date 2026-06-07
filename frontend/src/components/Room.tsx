@@ -195,9 +195,15 @@ export default function Room({ roomId, onEditMe, onLeave, onMemoPersist }: RoomP
   // Shared playback controls — these flip room state, which every
   // connected client (including this one) reacts to via the sync effect
   // inside useYoutubePlayer.
-  function dockRestart() {
+  function dockSeek(positionMs: number) {
     if (!playback.trackUri) return;
-    changePlayback({ trackUri: playback.trackUri, isPlaying: true, positionMs: 0 });
+    // Preserve current play/pause state on seek — only the playhead
+    // moves. Restart (positionMs=0) goes through this path too.
+    changePlayback({
+      trackUri: playback.trackUri,
+      isPlaying: playback.isPlaying,
+      positionMs: Math.max(0, Math.floor(positionMs)),
+    });
   }
   function dockTogglePlay() {
     if (!playback.trackUri) return;
@@ -378,7 +384,7 @@ export default function Room({ roomId, onEditMe, onLeave, onMemoPersist }: RoomP
         onChangeVolume={ytPlayer.setVolume}
         onToggleMute={() => ytPlayer.setMuted(!ytPlayer.muted)}
         onTogglePlay={dockTogglePlay}
-        onRestart={dockRestart}
+        onSeek={dockSeek}
         onNext={dockNext}
         onPlay={playTrack}
         onAddToQueue={addToQueue}
