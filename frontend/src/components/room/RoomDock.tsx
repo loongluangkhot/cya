@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent, type PointerEvent as ReactPointerEvent } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
 import Icon from '../Icon';
 import { useVoiceRecorder } from '../../hooks/useVoiceRecorder';
 import { formatVoiceDuration } from '../../hooks/useRoomState';
@@ -179,21 +179,18 @@ export function RoomDock({
     e.preventDefault();
     onSend(draft);
   }
-  async function micDown(e: ReactPointerEvent<HTMLButtonElement>) {
-    e.preventDefault();
-    e.currentTarget.setPointerCapture?.(e.pointerId);
-    await recorder.start();
-  }
-  async function micUp() {
-    if (!recording) {
-      recorder.cancel();
-      return;
+
+  // Click-to-toggle: first click starts recording, second click stops
+  // and sends. Press-and-hold proved unreliable on iOS Safari (pointer
+  // capture + system gesture promotion swallowed the release events).
+  async function onMicClick() {
+    if (recorder.status === 'requesting') return;
+    if (recording) {
+      const clip = await recorder.stop();
+      if (clip) onSendVoice(clip.audio, clip.durationMs, clip.mime);
+    } else {
+      await recorder.start();
     }
-    const clip = await recorder.stop();
-    if (clip) onSendVoice(clip.audio, clip.durationMs, clip.mime);
-  }
-  function micCancel() {
-    recorder.cancel();
   }
 
   return (
@@ -290,7 +287,7 @@ export function RoomDock({
           <div className="composer-input is-recording" aria-live="polite">
             <span className="rec-dot" aria-hidden="true" />
             <span>recording… {formatVoiceDuration(recorder.elapsedMs)}</span>
-            <span className="rec-hint">release to send</span>
+            <span className="rec-hint">tap mic to send</span>
           </div>
         ) : (
           <input
@@ -319,10 +316,9 @@ export function RoomDock({
           <button
             type="button"
             className={`composer-btn is-mic${recording ? ' is-recording' : ''}`}
-            aria-label={recording ? 'release to send voice message' : 'hold to record voice message'}
-            onPointerDown={micDown}
-            onPointerUp={micUp}
-            onPointerCancel={micCancel}
+            aria-label={recording ? 'stop and send voice message' : 'record voice message'}
+            onClick={onMicClick}
+            disabled={recorder.status === 'requesting'}
           >
             <Icon name="mic" size={16} />
           </button>
@@ -333,6 +329,9 @@ export function RoomDock({
       )}
       {recorder.status === 'unsupported' && (
         <div className="composer-error">voice messages aren't supported in this browser</div>
+      )}
+      {recorder.status === 'idle' && recorder.lastError && (
+        <div className="composer-error">{recorder.lastError}</div>
       )}
     </form>
   );
