@@ -44,6 +44,28 @@ interface UseYoutubePlayerOpts {
     local user's own optimistic update echoing back. */
 const SEEK_THRESHOLD_SEC = 2;
 
+/** Watchdog thresholds. YT's embedded player can sink into BUFFERING and
+    never come back out — manually seeking unwedges it, so the watchdog
+    automates that nudge once we've been visibly stuck for this long. */
+const STUCK_BUFFER_FIRST_NUDGE_MS = 8000;
+const STUCK_BUFFER_GIVE_UP_MS = 16000;
+/** Playhead progress smaller than this in a watchdog window counts as
+    "no progress" — getCurrentTime() can tick by a few hundredths during
+    a frozen buffer fill from internal timing noise. */
+const STUCK_BUFFER_PROGRESS_EPS_SEC = 0.5;
+
+function ytStateName(state: number): string {
+  switch (state) {
+    case -1: return 'UNSTARTED';
+    case 0: return 'ENDED';
+    case 1: return 'PLAYING';
+    case 2: return 'PAUSED';
+    case 3: return 'BUFFERING';
+    case 5: return 'CUED';
+    default: return `unknown(${state})`;
+  }
+}
+
 export function useYoutubePlayer({ playback, onEnded }: UseYoutubePlayerOpts): UseYoutubePlayerResult {
   const [enabled, setEnabled] = useStoredState<boolean>(
     OPT_IN_KEY,
@@ -66,6 +88,23 @@ export function useYoutubePlayer({ playback, onEnded }: UseYoutubePlayerOpts): U
   const pollRef = useRef<number | null>(null);
   const onEndedRef = useRef(onEnded);
   onEndedRef.current = onEnded;
+  // The watchdog reads playback state from a ref so the interval
+  // callback (created once inside buildPlayer's onReady) never sees a
+  // stale isPlaying value when the room toggles play/pause.
+  const playbackRef = useRef(playback);
+  playbackRef.current = playback;
+  // Stuck-BUFFERING tracker: when we first entered the current
+  // buffering episode, the playhead at that moment, and whether the
+  // first-stage seek nudge has already fired. null whenever the player
+  // isn't BUFFERING.
+  const bufferingSinceRef = useRef<{
+    atMs: number;
+    atSec: number;
+    nudged: boolean;
+  } | null>(null);
+  // Last YT player state code we observed — used to gate DEV transition
+  // logs so the watchdog poll doesn't spam the console at 4Hz.
+  const lastStateRef = useRef<number>(-2);
 
   function clearPoll() {
     if (pollRef.current !== null) {
@@ -101,12 +140,112 @@ export function useYoutubePlayer({ playback, onEnded }: UseYoutubePlayerOpts): U
             setDurationSec(e.target.getDuration() || 0);
             if (opts.playing) e.target.playVideo();
             clearPoll();
+            bufferingSinceRef.current = null;
+            lastStateRef.current = -2;
             pollRef.current = window.setInterval(() => {
               const p = playerRef.current;
               if (!p) return;
-              setCurrentSec(p.getCurrentTime() || 0);
+              const curSec = p.getCurrentTime() || 0;
+              setCurrentSec(curSec);
               const d = p.getDuration() || 0;
               if (d) setDurationSec(d);
+
+              // ── Watchdog ─────────────────────────────────────────
+              const Y = window.YT;
+              if (!Y) return;
+              let state: number;
+              try {
+                state = p.getPlayerState();
+              } catch {
+                return;
+              }
+              if (import.meta.env.DEV && state !== lastStateRef.current) {
+                console.log(
+                  `[yt] ${ytStateName(lastStateRef.current)} → ${ytStateName(state)} @ ${curSec.toFixed(1)}s`,
+                );
+                lastStateRef.current = state;
+              }
+
+              // PAUSED while the room says we should be playing — covers
+              // any local auto-pause (idle prompt, ad transition, user
+              // clicking the iframe's own pause button) the rest of the
+              // hook doesn't separately model.
+              if (
+                state === Y.PlayerState.PAUSED &&
+                playbackRef.current.isPlaying
+              ) {
+                try {
+                  p.playVideo();
+                } catch {
+                  // ignore
+                }
+              }
+
+              // Stuck BUFFERING — YT's embedded recovery often can't
+              // self-unwedge once the buffer drains and the next
+              // segment fetch wedges. Two-stage escalation: seek-nudge
+              // (forces a fresh range request from a new offset, which
+              // usually frees the player), then full reload of the
+              // video at the current position as a last resort.
+              if (state === Y.PlayerState.BUFFERING) {
+                const tracker = bufferingSinceRef.current;
+                const nowMs = Date.now();
+                if (!tracker) {
+                  bufferingSinceRef.current = {
+                    atMs: nowMs,
+                    atSec: curSec,
+                    nudged: false,
+                  };
+                } else {
+                  const elapsedMs = nowMs - tracker.atMs;
+                  const advancedSec = curSec - tracker.atSec;
+                  if (advancedSec > STUCK_BUFFER_PROGRESS_EPS_SEC) {
+                    // We're making progress — just slow buffering, not
+                    // wedged. Slide the watchdog window forward so we
+                    // only nudge if we genuinely stall.
+                    bufferingSinceRef.current = {
+                      atMs: nowMs,
+                      atSec: curSec,
+                      nudged: false,
+                    };
+                  } else if (elapsedMs >= STUCK_BUFFER_GIVE_UP_MS) {
+                    const videoId = currentVideoIdRef.current;
+                    if (videoId) {
+                      if (import.meta.env.DEV) {
+                        console.log(
+                          `[yt] still stuck at ${curSec.toFixed(1)}s after ${(elapsedMs / 1000).toFixed(1)}s — reloading video`,
+                        );
+                      }
+                      try {
+                        p.loadVideoById({
+                          videoId,
+                          startSeconds: Math.max(0, Math.floor(curSec)),
+                        });
+                      } catch {
+                        // ignore
+                      }
+                      bufferingSinceRef.current = null;
+                    }
+                  } else if (
+                    elapsedMs >= STUCK_BUFFER_FIRST_NUDGE_MS &&
+                    !tracker.nudged
+                  ) {
+                    if (import.meta.env.DEV) {
+                      console.log(
+                        `[yt] buffering ${(elapsedMs / 1000).toFixed(1)}s with no progress — nudging via seek`,
+                      );
+                    }
+                    try {
+                      p.seekTo(curSec + 1, true);
+                    } catch {
+                      // ignore
+                    }
+                    tracker.nudged = true;
+                  }
+                }
+              } else {
+                bufferingSinceRef.current = null;
+              }
             }, 250);
           },
           onStateChange: (e) => {
