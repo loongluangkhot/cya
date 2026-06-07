@@ -208,6 +208,7 @@ export interface ClientToServerEvents {
   addManyToQueue: (payload: { uris: string[] }) => void;
   playCollection: (payload: { uris: string[] }) => void;
   removeFromQueue: (payload: { uri: string; index?: number }) => void;
+  reorderQueue: (payload: { fromIndex: number; toIndex: number }) => void;
   advanceQueue: (payload: { afterTrackUri: string | null }) => void;
   clearQueue: () => void;
   submitMugshot: (payload: {

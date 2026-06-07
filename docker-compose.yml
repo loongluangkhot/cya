@@ -15,6 +15,10 @@ services:
   cya-backend:
     image: ${DOCKERHUB_USERNAME}/cya-backend:${CYA_TAG:-latest}
     restart: unless-stopped
+    # Give the SIGTERM-only room snapshot a real window to flush before
+    # Docker escalates to SIGKILL. Default is 10s, which is tight once
+    # audio_blobs in active rooms approach the per-room cap.
+    stop_grace_period: 30s
     volumes:
       - ./backend/.env:/app/.env:ro
       # SIGTERM-only room snapshot lives here so a redeploy doesn't

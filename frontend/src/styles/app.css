@@ -1941,105 +1941,238 @@ input, textarea, select { font-size: 16px; }
 }
 .memo-save:active { transform: translate(1px, 1px); }
 
-/* Music sheet (Spotify-skinned). */
-.music-now {
+/* ===================================================================
+   Music sheet — brutalist layout (see Music Sheet Prototype.html).
+   The sheet is audio-only inside; the in-room video popup mirrors the
+   header's screen-toggle.
+   =================================================================== */
+
+/* ── now playing: compact flex row (no card chrome). ───────────────── */
+.music-now { display: flex; align-items: center; gap: 12px; }
+.music-art-lg {
+  width: 52px;
+  height: 52px;
+  flex: 0 0 auto;
+  border: var(--border-w) solid var(--fg);
+  background: var(--surface-2);
+  display: block;
+}
+.music-now-meta { flex: 1; min-width: 0; }
+.music-now-title {
+  font-family: var(--font-body);
+  font-weight: 600;
+  font-size: 16px;
+  line-height: 1.15;
+  color: var(--fg);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Progress bar — also the restart hit target. */
+.music-bar {
+  height: 4px;
+  background: color-mix(in srgb, var(--fg) 14%, transparent);
+  margin: 13px 0 16px;
+  cursor: pointer;
+}
+.music-bar span {
+  display: block;
+  height: 100%;
+  background: var(--fg);
+  transition: width 0.25s linear;
+}
+
+/* ── volume: compact popover anchored under the speaker button. ──── */
+.music-vol-wrap { position: relative; flex: 0 0 auto; display: flex; }
+.music-vol-dismiss { position: fixed; inset: 0; z-index: 40; }
+.music-vol-pop {
+  position: absolute;
+  z-index: 41;
+  top: calc(100% + 8px);
+  right: 0;
   display: flex;
-  gap: 14px;
   align-items: center;
-  padding: 12px;
+  gap: 9px;
+  padding: 8px 10px;
+  width: 178px;
   background: var(--surface);
   border: var(--border-w) solid var(--fg);
   box-shadow: var(--shadow-hard);
-  margin-bottom: 18px;
 }
-.music-art-lg {
-  width: 80px;
-  height: 80px;
-  flex-shrink: 0;
-  border: var(--border-w) solid var(--fg);
-  background: linear-gradient(135deg, #888, #ddd);
+/* Arrow pointing back up to the speaker button. */
+.music-vol-pop::after {
+  content: '';
+  position: absolute;
+  bottom: 100%;
+  right: 13px;
+  width: 9px;
+  height: 9px;
+  background: var(--surface);
+  border-left: var(--border-w) solid var(--fg);
+  border-top: var(--border-w) solid var(--fg);
+  transform: translateY(5px) rotate(45deg);
 }
+.music-vol-mute {
+  flex: 0 0 auto;
+  width: 24px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: 0;
+  color: var(--fg);
+  cursor: pointer;
+}
+.music-vol-track {
+  position: relative;
+  flex: 1;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+  touch-action: none;
+}
+.music-vol-track::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 4px;
+  background: color-mix(in srgb, var(--fg) 14%, transparent);
+}
+.music-vol-fill {
+  position: absolute;
+  left: 0;
+  height: 4px;
+  background: var(--fg);
+  pointer-events: none;
+}
+.music-vol-thumb {
+  position: absolute;
+  top: 50%;
+  width: 14px;
+  height: 14px;
+  background: var(--surface);
+  border: 2px solid var(--fg);
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+.music-vol-val {
+  flex: 0 0 auto;
+  width: 22px;
+  text-align: right;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--muted);
+}
+
+/* ── add music: collapsed button → paste + chips → resolved card. ── */
+.music-add-btn {
+  width: 100%;
+  padding: 13px;
+  margin: 18px 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  background: transparent;
+  border: var(--border-w) dashed var(--fg);
+  color: var(--fg);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: var(--upper);
+  letter-spacing: var(--tracking);
+  cursor: pointer;
+  appearance: none;
+}
+.music-add-btn:active { transform: translateY(1px); }
+.music-add { margin: 18px 0; }
+.music-add-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+.music-textbtn {
+  background: none;
+  border: 0;
+  padding: 4px 0 4px 12px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  text-transform: var(--upper);
+  letter-spacing: var(--tracking);
+  color: var(--muted);
+  cursor: pointer;
+}
+.music-textbtn:hover { color: var(--fg); }
 .music-input {
   display: flex;
+  align-items: center;
   gap: 8px;
-  margin-bottom: 16px;
+  padding: 10px 10px 10px 12px;
+  background: var(--surface);
+  border: var(--border-w) solid var(--fg);
+  color: var(--muted);
 }
 .music-input input {
   flex: 1;
   appearance: none;
-  padding: 12px 14px;
+  border: 0;
+  outline: 0;
+  background: transparent;
   font-family: var(--font-body);
-  font-size: 16px;
+  font-size: 14px;
   color: var(--fg);
-  background: var(--surface);
-  border: var(--border-w) solid var(--fg);
-  border-radius: var(--radius-pill);
-  outline: none;
   min-width: 0;
 }
-.music-input button {
+.music-input-go {
   appearance: none;
   cursor: pointer;
-  padding: 0 18px;
-  font-family: var(--font-display);
-  font-weight: var(--display-weight);
-  font-size: 14px;
-  letter-spacing: var(--tracking);
-  text-transform: var(--upper);
-  color: var(--bg);
+  flex: 0 0 auto;
+  padding: 7px 13px;
   background: var(--fg);
+  color: var(--bg);
   border: var(--border-w) solid var(--fg);
-  border-radius: var(--radius-pill);
-}
-.music-input button:disabled { opacity: 0.4; cursor: not-allowed; }
-.spotify-embed {
-  border: var(--border-w) solid var(--fg);
-  min-height: 80px;
-  margin-top: 8px;
-}
-.spotify-embed iframe { display: block; width: 100%; border: 0; }
-.spotify-status, .music-error {
-  font-family: var(--font-mono);
-  font-size: 11px;
-  color: var(--muted);
-  text-transform: var(--upper);
-  letter-spacing: var(--tracking);
-  margin-top: 6px;
-  display: block;
-}
-.music-error { color: #c0392b; }
-
-/* ───────── Music tabs ───────── */
-
-.music-tabs {
-  display: flex;
-  border: var(--border-w) solid var(--fg);
-  margin-bottom: 16px;
-}
-.music-tab {
-  appearance: none;
-  flex: 1;
-  cursor: pointer;
-  padding: 10px 8px;
   font-family: var(--font-mono);
   font-size: 11px;
   font-weight: 700;
   text-transform: var(--upper);
   letter-spacing: var(--tracking);
-  color: var(--fg);
-  background: var(--surface);
-  border: 0;
-  border-right: var(--border-w) solid var(--fg);
 }
-.music-tab:last-child { border-right: 0; }
-.music-tab.selected {
-  color: var(--bg);
-  background: var(--fg);
+.music-input-go:disabled { opacity: 0.4; cursor: not-allowed; }
+.music-chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+}
+.music-chip {
+  appearance: none;
+  cursor: pointer;
+  padding: 6px 11px;
+  background: var(--surface);
+  border: var(--border-w) solid var(--fg);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--fg);
+  white-space: nowrap;
+}
+.music-chip:active { transform: translate(1px, 1px); }
+.music-error {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: #c0392b;
+  text-transform: var(--upper);
+  letter-spacing: var(--tracking);
+  margin-top: 6px;
+  display: block;
 }
 
-/* Section header inside the music sheet. The three top-level sections
-   (now playing, search, queue) each get one of these, with a dividing
-   line above so the sections read as distinct blocks. */
+/* ── section divider (only one in the new layout: above "up next"). ─ */
 .music-section-head {
   display: flex;
   align-items: baseline;
@@ -2061,11 +2194,12 @@ input, textarea, select { font-size: 16px; }
   font-weight: 700;
   text-transform: var(--upper);
   letter-spacing: var(--tracking);
-  color: var(--fg);
+  color: var(--muted);
 }
-/* Legacy in-flow usage (still emitted by PasteBar for "found a video" /
-   "searching…") — keep the label readable without the divider chrome. */
-.music-section-label:not(.music-section-head .music-section-label) {
+.music-section-head .music-section-label { color: var(--fg); }
+.music-section-label.sm { font-size: 10px; }
+/* Legacy in-flow usage from PasteBar ("found a video" / "searching…"). */
+.music-section-label:not(.music-section-head .music-section-label):not(.music-add-head .music-section-label):not(.music-chips .music-section-label) {
   display: block;
   margin: 14px 0 8px;
 }
@@ -2084,19 +2218,98 @@ input, textarea, select { font-size: 16px; }
 }
 .music-section-action:hover { color: var(--fg); }
 
-.spotify-row {
+/* ── queue rows: grip ▸ art ▸ meta ▸ 3-button cluster. ───────────── */
+.music-qlist { margin-top: 4px; }
+.music-qrow { position: relative; }
+.music-qrow.lifting { z-index: 2; }
+.music-qrow.lifting .music-qbody {
+  background: var(--surface);
+  box-shadow: var(--shadow-hard);
+}
+.music-qbody {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 8px;
+  padding: 8px 2px;
+}
+.music-qgrip {
+  flex: 0 0 auto;
+  color: var(--muted);
+  display: inline-flex;
+  align-items: center;
+  margin-left: -2px;
+  padding: 4px 2px;
+  cursor: grab;
+  touch-action: none;
+}
+.music-qgrip:active { cursor: grabbing; }
+.music-qart {
+  width: 34px;
+  height: 34px;
+  flex: 0 0 auto;
+  border: var(--border-w) solid var(--fg);
+  background: var(--surface-2);
+  object-fit: cover;
+  display: block;
+}
+.music-qmeta {
+  flex: 1;
+  min-width: 0;
+}
+.music-qtitle {
+  font-family: var(--font-body);
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--fg);
+}
+.music-qsub {
+  font-family: var(--font-body);
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.3;
+}
+.music-qactions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: 0 0 auto;
+}
+.music-more {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: 0;
+  padding: 12px 2px 4px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--muted);
+  text-transform: var(--upper);
+  letter-spacing: var(--tracking);
+  cursor: pointer;
+}
+.music-more:hover { color: var(--fg); }
+
+/* ── PasteBar's resolved-result card (video/playlist). Kept on the
+   spotify-row classes since ResolvedRow + ResolvedPlaylistRow still
+   render them; tightened to match the new brutalist look. ───────── */
+.spotify-row {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  margin-top: 14px;
+  padding: 9px;
   background: var(--surface);
-  border: var(--border-w) solid var(--scene-line);
+  border: var(--border-w) solid var(--fg);
+  box-shadow: var(--shadow-hard);
 }
 .spotify-row + .spotify-row { margin-top: 6px; }
 .spotify-row-art {
-  width: 44px;
-  height: 44px;
-  flex-shrink: 0;
+  width: 40px;
+  height: 40px;
+  flex: 0 0 auto;
   background: var(--surface-2);
   border: var(--border-w) solid var(--fg);
   object-fit: cover;
@@ -2119,121 +2332,63 @@ input, textarea, select { font-size: 16px; }
   white-space: nowrap;
 }
 .spotify-row-meta {
-  font-family: var(--font-mono);
-  font-size: 10px;
+  font-family: var(--font-body);
+  font-size: 12px;
   color: var(--muted);
-  text-transform: var(--upper);
-  letter-spacing: var(--tracking);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .spotify-row-actions {
   display: flex;
+  align-items: center;
   gap: 4px;
-  flex-shrink: 0;
+  flex: 0 0 auto;
 }
+
+/* ── shared icon button: 28×28 square; primary = inverse; ghost =
+   transparent; remove gets a red hover. Used by now-playing transport,
+   queue row actions, paste-bar resolved card. ───────────────────── */
 .row-icon-btn {
   appearance: none;
   cursor: pointer;
-  width: 30px;
-  height: 30px;
-  background: var(--surface);
-  border: var(--border-w) solid var(--fg);
-  display: flex;
+  width: 28px;
+  height: 28px;
+  flex: 0 0 auto;
+  display: inline-flex;
   align-items: center;
   justify-content: center;
-  color: var(--fg);
   padding: 0;
+  background: var(--surface);
+  border: var(--border-w) solid var(--fg);
+  color: var(--fg);
+  transition: background 0.1s, color 0.1s, border-color 0.1s, transform 0.08s;
 }
-.row-icon-btn.primary {
+.row-icon-btn.primary { background: var(--fg); color: var(--bg); }
+.row-icon-btn.ghost { background: transparent; color: var(--fg); }
+.row-icon-btn.ghost.active {
   background: var(--fg);
   color: var(--bg);
 }
-.row-icon-btn:disabled { opacity: 0.5; cursor: not-allowed; }
-
-/* Click region inside a CollectionRow that drills into the playlist/album
-   track list. Sits next to .spotify-row-actions; styled as bare text so the
-   parent .spotify-row provides the visible card. */
-.spotify-row-open {
-  appearance: none;
-  cursor: pointer;
-  background: transparent;
-  border: 0;
-  padding: 0;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex: 1;
-  min-width: 0;
-  text-align: left;
-  color: inherit;
+.row-icon-btn.remove:hover {
+  background: #c0392b;
+  border-color: #c0392b;
+  color: #fff;
+}
+.row-icon-btn:active { transform: translate(1px, 1px); }
+.row-icon-btn:disabled {
+  opacity: 0.26;
+  cursor: default;
+  pointer-events: none;
 }
 
-/* DrillView title + bulk actions sit on one row. */
-.drill-head {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-bottom: 10px;
-}
-
-.music-back {
-  appearance: none;
-  background: transparent;
-  border: 0;
-  cursor: pointer;
-  color: var(--muted);
+.queue-empty {
   font-family: var(--font-mono);
   font-size: 12px;
+  color: var(--muted);
+  padding: 12px 0;
   text-transform: var(--upper);
   letter-spacing: var(--tracking);
-  padding: 0;
-  margin-bottom: 12px;
-  display: inline-block;
-}
-
-.queue-empty, .search-empty, .list-loading {
-  font-family: var(--font-body);
-  font-size: 13px;
-  color: var(--muted);
-  padding: 20px 0;
-  text-align: center;
-}
-
-.search-input {
-  width: 100%;
-  appearance: none;
-  padding: 12px 14px;
-  font-family: var(--font-body);
-  font-size: 16px;
-  color: var(--fg);
-  background: var(--surface);
-  border: var(--border-w) solid var(--fg);
-  outline: none;
-  margin-bottom: 14px;
-}
-
-/* Inline controls anchored to the right side of the now-playing card. */
-.music-now-controls {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  flex-shrink: 0;
-}
-
-/* Brief flash on row-action buttons after activation. */
-.row-icon-btn.flashing {
-  background: #2f8a3c;
-  border-color: #2f8a3c;
-  color: #ffffff;
-  animation: rowFlash 0.65s ease-out;
-}
-.row-icon-btn.primary.flashing { background: #2f8a3c; }
-@keyframes rowFlash {
-  0%   { transform: scale(1); }
-  35%  { transform: scale(1.18); }
-  100% { transform: scale(1); }
 }
 
 /* Chat log sheet rows */
@@ -2517,19 +2672,6 @@ input, textarea, select { font-size: 16px; }
   overflow: hidden;
 }
 
-/* Theater stage above the now-card. */
-.yt-theater {
-  width: 100%;
-  aspect-ratio: 16 / 9;
-  margin-bottom: 14px;
-  border: var(--border-w) solid var(--fg);
-  box-shadow: var(--shadow-hard);
-  background: #000;
-  overflow: hidden;
-}
-.yt-theater-frame { width: 100%; height: 100%; }
-.yt-theater-frame iframe { display: block; width: 100%; height: 100%; border: 0; }
-
 /* Progress bar under the now-card. */
 .yt-prog-track { height: 3px; background: color-mix(in srgb, var(--fg) 16%, transparent); }
 .yt-prog-fill { height: 100%; background: var(--fg); transition: width 0.2s linear; }
@@ -2571,23 +2713,6 @@ input, textarea, select { font-size: 16px; }
   color: var(--muted);
 }
 
-/* Player-mode toggle row (mini / theater / audio). */
-.yt-mode-row { display: flex; gap: 6px; margin-bottom: 14px; }
-.yt-mode-chip {
-  appearance: none;
-  cursor: pointer;
-  padding: 4px 10px;
-  font-family: var(--font-mono);
-  font-size: 10px;
-  font-weight: 700;
-  text-transform: var(--upper);
-  letter-spacing: var(--tracking);
-  background: transparent;
-  color: var(--muted);
-  border: var(--border-w) solid var(--scene-line);
-}
-.yt-mode-chip.selected { background: var(--fg); color: var(--bg); border-color: var(--fg); }
-
 /* Room-level video surface (watch from the room without opening the sheet).
    Corner = top-left floating PiP; wall = larger framed screen anchored
    near the top of the scene. */
@@ -2609,13 +2734,6 @@ input, textarea, select { font-size: 16px; }
   overflow: hidden;
 }
 .room-video-frame iframe { display: block; width: 100%; height: 100%; border: 0; }
-.room-video-art {
-  display: block;
-  width: 100%;
-  aspect-ratio: 16 / 9;
-  object-fit: cover;
-  background: var(--surface-2);
-}
 .room-video-bar {
   display: flex;
   align-items: center;

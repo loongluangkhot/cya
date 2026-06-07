@@ -4,6 +4,8 @@ import { loadYouTubeApi, type YTNamespace, type YTPlayer } from '../youtubeIfram
 import { useStoredState } from './useStoredState';
 
 const OPT_IN_KEY = 'cya:yt:opt-in:v1';
+const VOLUME_KEY = 'cya:yt:vol:v1';
+const MUTED_KEY = 'cya:yt:muted:v1';
 
 export type PlayerStatus = 'idle' | 'loading' | 'ready' | 'error';
 
@@ -22,6 +24,11 @@ export interface UseYoutubePlayerResult {
   currentSec: number;
   durationSec: number;
   isPlaying: boolean;
+  /** Local YT player volume 0..100. Per-listener — never broadcast. */
+  volume: number;
+  muted: boolean;
+  setVolume: (v: number) => void;
+  setMuted: (next: boolean) => void;
   /** Current playhead in ms — used when toggling so the wire carries
       real position, not a stale 0. */
   getPositionMs: () => number;
@@ -66,12 +73,18 @@ function ytStateName(state: number): string {
   }
 }
 
+function validateBool(v: unknown): boolean | null {
+  return typeof v === 'boolean' ? v : null;
+}
+function validateVolume(v: unknown): number | null {
+  if (typeof v !== 'number' || !Number.isFinite(v)) return null;
+  return Math.max(0, Math.min(100, Math.round(v)));
+}
+
 export function useYoutubePlayer({ playback, onEnded }: UseYoutubePlayerOpts): UseYoutubePlayerResult {
-  const [enabled, setEnabled] = useStoredState<boolean>(
-    OPT_IN_KEY,
-    true,
-    (v) => (typeof v === 'boolean' ? v : null),
-  );
+  const [enabled, setEnabled] = useStoredState<boolean>(OPT_IN_KEY, true, validateBool);
+  const [volume, setVolumeStored] = useStoredState<number>(VOLUME_KEY, 80, validateVolume);
+  const [muted, setMutedStored] = useStoredState<boolean>(MUTED_KEY, false, validateBool);
   const [status, setStatus] = useState<PlayerStatus>('idle');
   const [currentSec, setCurrentSec] = useState(0);
   const [durationSec, setDurationSec] = useState(0);
@@ -93,6 +106,13 @@ export function useYoutubePlayer({ playback, onEnded }: UseYoutubePlayerOpts): U
   // stale isPlaying value when the room toggles play/pause.
   const playbackRef = useRef(playback);
   playbackRef.current = playback;
+  // Volume + mute are read once at onReady from refs (buildPlayer is a
+  // useCallback with no deps — without refs we'd close over stale values
+  // when the listener changes their volume before a new player is built).
+  const volumeRef = useRef(volume);
+  volumeRef.current = volume;
+  const mutedRef = useRef(muted);
+  mutedRef.current = muted;
   // Stuck-BUFFERING tracker: when we first entered the current
   // buffering episode, the playhead at that moment, and whether the
   // first-stage seek nudge has already fired. null whenever the player
@@ -105,6 +125,11 @@ export function useYoutubePlayer({ playback, onEnded }: UseYoutubePlayerOpts): U
   // Last YT player state code we observed — used to gate DEV transition
   // logs so the watchdog poll doesn't spam the console at 4Hz.
   const lastStateRef = useRef<number>(-2);
+  // Initial-load gate for the BUFFERING watchdog. Flips true on the
+  // first PLAYING transition. Without this, a slow initial chunk fetch
+  // (>8s) would trip the seek-nudge from currentSec=0 → 1, silently
+  // skipping the first second of the track on every slow-network play.
+  const hasEverPlayedRef = useRef(false);
 
   function clearPoll() {
     if (pollRef.current !== null) {
@@ -133,15 +158,33 @@ export function useYoutubePlayer({ playback, onEnded }: UseYoutubePlayerOpts): U
           rel: 0,
           modestbranding: 1,
           controls: 1,
+          // Start muted so Chrome's autoplay policy lets the iframe
+          // begin playing without a fresh gesture. onReady immediately
+          // restores the listener's persisted volume + mute preference,
+          // so audio kicks in within ~100ms of the player being ready.
+          // Without this, the first play after page load wedges at
+          // "playing-but-no-audio" until the user manually toggles.
+          mute: 1,
         },
         events: {
           onReady: (e) => {
             setStatus('ready');
             setDurationSec(e.target.getDuration() || 0);
+            // Apply the listener's persisted volume + mute before play
+            // kicks in, so we don't get a brief blast at the iframe's
+            // default volume between onReady and the volume sync effect.
+            try {
+              e.target.setVolume(volumeRef.current);
+              if (mutedRef.current) e.target.mute();
+              else e.target.unMute();
+            } catch {
+              // ignore — synced again by the [status, volume, muted] effect
+            }
             if (opts.playing) e.target.playVideo();
             clearPoll();
             bufferingSinceRef.current = null;
             lastStateRef.current = -2;
+            hasEverPlayedRef.current = false;
             pollRef.current = window.setInterval(() => {
               const p = playerRef.current;
               if (!p) return;
@@ -165,6 +208,10 @@ export function useYoutubePlayer({ playback, onEnded }: UseYoutubePlayerOpts): U
                 );
                 lastStateRef.current = state;
               }
+              // Flip the initial-load gate the first time we see PLAYING.
+              // The BUFFERING watchdog below stays disarmed until then so
+              // a slow first chunk doesn't get treated as "stuck".
+              if (state === Y.PlayerState.PLAYING) hasEverPlayedRef.current = true;
 
               // PAUSED while the room says we should be playing — covers
               // any local auto-pause (idle prompt, ad transition, user
@@ -187,7 +234,7 @@ export function useYoutubePlayer({ playback, onEnded }: UseYoutubePlayerOpts): U
               // (forces a fresh range request from a new offset, which
               // usually frees the player), then full reload of the
               // video at the current position as a last resort.
-              if (state === Y.PlayerState.BUFFERING) {
+              if (state === Y.PlayerState.BUFFERING && hasEverPlayedRef.current) {
                 const tracker = bufferingSinceRef.current;
                 const nowMs = Date.now();
                 if (!tracker) {
@@ -221,10 +268,18 @@ export function useYoutubePlayer({ playback, onEnded }: UseYoutubePlayerOpts): U
                           videoId,
                           startSeconds: Math.max(0, Math.floor(curSec)),
                         });
+                        // YT's IFrame API doesn't reliably preserve
+                        // volume/mute across loadVideoById in all
+                        // versions; re-apply the listener's settings so
+                        // the reload can't blast at default 100/unmuted.
+                        p.setVolume(volumeRef.current);
+                        if (mutedRef.current) p.mute();
+                        else p.unMute();
                       } catch {
                         // ignore
                       }
                       bufferingSinceRef.current = null;
+                      hasEverPlayedRef.current = false;
                     }
                   } else if (
                     elapsedMs >= STUCK_BUFFER_FIRST_NUDGE_MS &&
@@ -346,13 +401,52 @@ export function useYoutubePlayer({ playback, onEnded }: UseYoutubePlayerOpts): U
 
   const getPositionMs = useCallback(() => {
     const p = playerRef.current;
-    if (!p) return 0;
-    try {
-      return Math.max(0, Math.floor((p.getCurrentTime() || 0) * 1000));
-    } catch {
-      return 0;
+    // If the player is live and ready, trust its playhead.
+    if (p && status === 'ready') {
+      try {
+        return Math.max(0, Math.floor((p.getCurrentTime() || 0) * 1000));
+      } catch {
+        // fall through to the extrapolation below
+      }
     }
-  }, []);
+    // Otherwise extrapolate from the room's last reported position. A
+    // play/pause click while the iframe is mid-rebuild would otherwise
+    // broadcast positionMs=0 and reset every listener's playhead.
+    const pb = playbackRef.current;
+    const elapsedMs = pb.isPlaying ? Date.now() - pb.positionUpdatedAt : 0;
+    return Math.max(0, Math.floor(pb.positionMs + elapsedMs));
+  }, [status]);
+
+  // Volume + mute are local-only — the room never sees them. State lives
+  // in localStorage so a refresh keeps the listener's preference, and we
+  // apply it to the live player whenever either changes. Dragging the
+  // slider above 0 auto-unmutes (matches the prototype).
+  const setVolume = useCallback(
+    (v: number) => {
+      const clamped = Math.max(0, Math.min(100, Math.round(v)));
+      setVolumeStored(clamped);
+      if (clamped > 0) setMutedStored(false);
+    },
+    [setVolumeStored, setMutedStored],
+  );
+  const setMuted = useCallback(
+    (next: boolean) => {
+      setMutedStored(next);
+    },
+    [setMutedStored],
+  );
+  useEffect(() => {
+    if (status !== 'ready') return;
+    const p = playerRef.current;
+    if (!p) return;
+    try {
+      p.setVolume(volume);
+      if (muted) p.mute();
+      else p.unMute();
+    } catch {
+      // Player may be mid-rebuild — the next ready transition will reapply.
+    }
+  }, [status, volume, muted]);
 
   // Sync the local player to room playback. Fires when the room state's
   // play/pause flips OR when positionMs/positionUpdatedAt change. We seek
@@ -470,6 +564,10 @@ export function useYoutubePlayer({ playback, onEnded }: UseYoutubePlayerOpts): U
     currentSec,
     durationSec,
     isPlaying,
+    volume,
+    muted,
+    setVolume,
+    setMuted,
     getPositionMs,
     attach,
     expandPlaylist,

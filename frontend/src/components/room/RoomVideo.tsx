@@ -1,11 +1,9 @@
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type RefObject } from 'react';
 import Icon from '../Icon';
 import { useYoutubeMeta } from '../../hooks/useYoutubeMeta';
-import { thumbUrl } from '../../youtube';
 
 interface RoomVideoProps {
   trackId: string;
-  audioOnly: boolean;
   isPlaying: boolean;
   hasQueue: boolean;
   stageRef: RefObject<HTMLDivElement>;
@@ -54,7 +52,6 @@ function saveRect(rect: Rect) {
 
 export function RoomVideo({
   trackId,
-  audioOnly,
   isPlaying,
   hasQueue,
   stageRef,
@@ -163,18 +160,10 @@ export function RoomVideo({
   return (
     <div
       ref={boxRef}
-      className={`room-video${audioOnly ? ' is-audio' : ''}${moved ? ' is-dragged' : ''}`}
+      className={`room-video${moved ? ' is-dragged' : ''}`}
       style={style}
     >
-      {audioOnly ? (
-        <img
-          src={meta.art || thumbUrl(trackId)}
-          className="room-video-art"
-          alt=""
-        />
-      ) : (
-        <div ref={stageRef} className="room-video-frame" />
-      )}
+      <div ref={stageRef} className="room-video-frame" />
       <div className="room-video-bar">
         <button
           type="button"
