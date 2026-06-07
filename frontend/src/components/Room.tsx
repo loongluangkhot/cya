@@ -238,6 +238,8 @@ export default function Room({ roomId, onEditMe, onLeave, onMemoPersist }: RoomP
   // behind the music sheet when open — the user disables it via the
   // popup's own close button (or the sheet's screen toggle).
   const showRoomVideo = ytPlayer.enabled && !!playback.trackUri && roomVideoOn;
+  const marqueeActive =
+    marquee.optIn && marquee.stripOn && marquee.mergedItems.length > 0;
 
   return (
     <div className="room-root">
@@ -269,6 +271,7 @@ export default function Room({ roomId, onEditMe, onLeave, onMemoPersist }: RoomP
             onTogglePlay={dockTogglePlay}
             onNext={dockNext}
             onClose={() => setRoomVideoOn(false)}
+            marqueeActive={marqueeActive}
           />
         )}
 
@@ -297,7 +300,7 @@ export default function Room({ roomId, onEditMe, onLeave, onMemoPersist }: RoomP
           onLeave={onLeave}
         />
 
-        {marquee.optIn && marquee.stripOn && marquee.mergedItems.length > 0 && (
+        {marqueeActive && (
           <MarqueeStrip
             items={marquee.mergedItems}
             feedTitle={marquee.feedTitle}
@@ -321,6 +324,7 @@ export default function Room({ roomId, onEditMe, onLeave, onMemoPersist }: RoomP
             users={users}
             takenAt={mugshotsTakenAt}
             onClose={() => setMugshotBoardOn(false)}
+            marqueeActive={marqueeActive}
           />
         )}
       </div>
@@ -353,7 +357,7 @@ export default function Room({ roomId, onEditMe, onLeave, onMemoPersist }: RoomP
         }}
       />
 
-      <Toasts items={toasts} />
+      <Toasts items={toasts} marqueeActive={marqueeActive} />
 
       <PeopleSheet
         open={sheet === 'people'}

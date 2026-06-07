@@ -11,6 +11,8 @@ interface RoomVideoProps {
   onTogglePlay: () => void;
   onNext: () => void;
   onClose: () => void;
+  /** Marquee strip visible — shift default top so the popup doesn't overlap. */
+  marqueeActive?: boolean;
 }
 
 interface Rect {
@@ -59,6 +61,7 @@ export function RoomVideo({
   onTogglePlay,
   onNext,
   onClose,
+  marqueeActive = false,
 }: RoomVideoProps) {
   const meta = useYoutubeMeta(trackId);
   const boxRef = useRef<HTMLDivElement | null>(null);
@@ -157,12 +160,16 @@ export function RoomVideo({
       : {}),
   };
 
+  const cls = [
+    'room-video',
+    moved ? 'is-dragged' : '',
+    !moved && marqueeActive ? 'is-default-with-marquee' : '',
+  ]
+    .filter(Boolean)
+    .join(' ');
+
   return (
-    <div
-      ref={boxRef}
-      className={`room-video${moved ? ' is-dragged' : ''}`}
-      style={style}
-    >
+    <div ref={boxRef} className={cls} style={style}>
       <div ref={stageRef} className="room-video-frame" />
       <div className="room-video-bar">
         <button

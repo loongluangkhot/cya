@@ -1571,6 +1571,10 @@ input, textarea, select { font-size: 16px; }
   gap: 6px;
   pointer-events: none;
 }
+/* Shift below the marquee strip (38px offset + 30px height + ~4px gap). */
+.toasts.is-with-marquee {
+  top: calc(max(env(safe-area-inset-top, 12px), 12px) + 80px);
+}
 .toast {
   padding: 6px 12px;
   background: var(--fg);
@@ -2736,6 +2740,11 @@ input, textarea, select { font-size: 16px; }
   left: var(--hud-pad);
   top: 64px;
 }
+/* Default-position popup shifts below the marquee strip
+   (top: safe-area+38, height 30, + borders + small gap). */
+.room-video.is-default-with-marquee {
+  top: calc(max(env(safe-area-inset-top, 12px), 12px) + 76px);
+}
 .room-video-frame {
   width: 100%;
   aspect-ratio: 16 / 9;
@@ -2809,6 +2818,10 @@ input, textarea, select { font-size: 16px; }
   box-shadow: var(--shadow-hard);
   display: flex;
   flex-direction: column;
+}
+/* Default-position board shifts below the marquee strip. */
+.mug-board.is-default-with-marquee {
+  top: calc(max(env(safe-area-inset-top, 12px), 12px) + 76px);
 }
 .mug-board-bar {
   display: flex;

@@ -17,6 +17,8 @@ interface MugshotBoardProps {
   /** Per-user takenAt timestamps. Anyone present in users but absent here hasn't snapped yet. */
   takenAt: Record<string, number>;
   onClose: () => void;
+  /** Marquee strip visible — shift default top so the board doesn't overlap. */
+  marqueeActive?: boolean;
 }
 
 interface Rect {
@@ -67,7 +69,13 @@ function saveRect(rect: Rect) {
   }
 }
 
-export function MugshotBoard({ roomId, users, takenAt, onClose }: MugshotBoardProps) {
+export function MugshotBoard({
+  roomId,
+  users,
+  takenAt,
+  onClose,
+  marqueeActive = false,
+}: MugshotBoardProps) {
   const [rect, setRect] = useState<Rect>(() => loadRect());
   const boxRef = useRef<HTMLDivElement | null>(null);
   const stripRef = useRef<HTMLDivElement | null>(null);
@@ -185,8 +193,11 @@ export function MugshotBoard({ roomId, users, takenAt, onClose }: MugshotBoardPr
       : {}),
   };
 
+  const moved = rect.x !== null && rect.y !== null;
+  const cls = `mug-board${!moved && marqueeActive ? ' is-default-with-marquee' : ''}`;
+
   return (
-    <div ref={boxRef} className="mug-board" style={style}>
+    <div ref={boxRef} className={cls} style={style}>
       <div ref={stripRef} className="mug-strip">
         {entries.length === 0 ? (
           <div className="mug-empty">no mugshots yet</div>
