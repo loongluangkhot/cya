@@ -52,6 +52,7 @@ const YT_POPUP_KEY = 'cya:yt:popup:v1';
 const MUG_OPT_IN_KEY = 'cya:mug:opt-in:v1';
 const MUG_POPUP_KEY = 'cya:mug:popup:v1';
 const VOICE_AUTOPLAY_KEY = 'cya:voice:autoplay:v1';
+const THOUGHTS_ON_KEY = 'cya:minds:thoughts:v1';
 
 function validateBool(v: unknown): boolean | null {
   return typeof v === 'boolean' ? v : null;
@@ -141,6 +142,12 @@ export default function Room({ roomId, onEditMe, onLeave, onMemoPersist }: RoomP
   );
   const [voiceAutoplay, setVoiceAutoplay] = useStoredState<boolean>(
     VOICE_AUTOPLAY_KEY,
+    true,
+    validateBool,
+  );
+  // Memo thought bubbles over sprites — a per-viewer mute, default on.
+  const [thoughtsOn, setThoughtsOn] = useStoredState<boolean>(
+    THOUGHTS_ON_KEY,
     true,
     validateBool,
   );
@@ -263,6 +270,7 @@ export default function Room({ roomId, onEditMe, onLeave, onMemoPersist }: RoomP
           room={ambient.room}
           onOpenMemo={() => setSheet('minds')}
           onWriteMemo={() => setSheet('memo-editor')}
+          thoughtsMuted={!thoughtsOn}
         />
         <AmbienceOverlay ambient={ambient} />
 
@@ -351,6 +359,7 @@ export default function Room({ roomId, onEditMe, onLeave, onMemoPersist }: RoomP
         onOpenMusic={() => setSheet('music')}
         onOpenAmbience={() => setSheet('ambience')}
         onOpenMinds={() => setSheet('minds')}
+        thoughtsOn={thoughtsOn}
         onOpenChat={() => setSheet('chat')}
         onTogglePlay={dockTogglePlay}
         mugshotOptIn={mugshotOptIn}
@@ -421,6 +430,8 @@ export default function Room({ roomId, onEditMe, onLeave, onMemoPersist }: RoomP
         peers={users}
         meId={meId}
         onEditMine={() => setSheet('memo-editor')}
+        thoughtsOn={thoughtsOn}
+        onToggleThoughts={() => setThoughtsOn((v) => !v)}
       />
       <MemoEditorSheet
         open={sheet === 'memo-editor'}

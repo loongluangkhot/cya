@@ -2,6 +2,7 @@ import { useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 import { IsoBackdrop } from './IsoBackdrop';
 import { PeerOnIso } from './scene/PeerOnIso';
 import { SpeechBubble } from './scene/SpeechBubble';
+import { THOUGHT_SHOW_MS, useThoughtRotation } from '../hooks/useThoughtRotation';
 import { ISO_GRID, ISO_TILE_H, ISO_TILE_W, ISO_WALL_H, iso, isoFromPct } from '../iso';
 import type { AmbientRoom, BubbleState, User } from '../types';
 
@@ -12,15 +13,31 @@ interface IsoSceneProps {
   room: AmbientRoom;
   onOpenMemo: (peerId: string) => void;
   onWriteMemo: () => void;
+  /** Viewer muted memo thought bubbles (local setting). */
+  thoughtsMuted: boolean;
 }
 
-export default function IsoScene({ peers, meId, bubbles, room, onOpenMemo, onWriteMemo }: IsoSceneProps) {
+export default function IsoScene({
+  peers,
+  meId,
+  bubbles,
+  room,
+  onOpenMemo,
+  onWriteMemo,
+  thoughtsMuted,
+}: IsoSceneProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [manualPan, setManualPan] = useState({ x: 0, y: 0 });
   const [dragging, setDragging] = useState(false);
   // Which peer's memo popover is currently shown above the scene. A
   // transparent backdrop dismisses on any outside click.
   const [previewMemoId, setPreviewMemoId] = useState<string | null>(null);
+  const { thought, dismiss: dismissPeek } = useThoughtRotation({
+    users: peers,
+    bubbles,
+    previewMemoId,
+    muted: thoughtsMuted,
+  });
   const dragRef = useRef<{
     startX: number;
     startY: number;
@@ -129,7 +146,13 @@ export default function IsoScene({ peers, meId, bubbles, room, onOpenMemo, onWri
             peer={p}
             isMe={p.id === meId}
             previewOpen={previewMemoId === p.id}
+            peeking={thought?.userId === p.id}
+            peekMs={THOUGHT_SHOW_MS}
             onTogglePreview={() => setPreviewMemoId((cur) => (cur === p.id ? null : p.id))}
+            onClosePreview={() => {
+              if (previewMemoId === p.id) setPreviewMemoId(null);
+              else dismissPeek();
+            }}
             onSeeMore={() => {
               setPreviewMemoId(null);
               onOpenMemo(p.id);

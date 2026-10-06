@@ -1,6 +1,7 @@
 import ReactMarkdown from 'react-markdown';
 import remarkBreaks from 'remark-breaks';
 import remarkGfm from 'remark-gfm';
+import Icon from '../Icon';
 import PixelCharacter from '../PixelCharacter';
 import { colorHex } from '../../characters';
 import { isoFromPct } from '../../iso';
@@ -11,7 +12,13 @@ interface PeerOnIsoProps {
   peer: User;
   isMe: boolean;
   previewOpen: boolean;
+  /** Auto-opened memo peek: fades on its own, no backdrop, tap pins it. */
+  peeking: boolean;
+  /** Peek lifetime — drives the fade-in / hold / fade-out animation. */
+  peekMs: number;
   onTogglePreview: () => void;
+  /** Close button: unpins an opened preview, or ends a peek early. */
+  onClosePreview: () => void;
   onSeeMore: () => void;
   onWriteMemo?: () => void;
 }
@@ -20,7 +27,10 @@ export function PeerOnIso({
   peer,
   isMe,
   previewOpen,
+  peeking,
+  peekMs,
   onTogglePreview,
+  onClosePreview,
   onSeeMore,
   onWriteMemo,
 }: PeerOnIsoProps) {
@@ -28,6 +38,8 @@ export function PeerOnIso({
   const { x, y } = isoFromPct(peer.x, peer.y);
   const hasMemo = peer.memo.trim().length > 0;
   const showAddCue = isMe && !hasMemo && !!onWriteMemo;
+  const isPeek = peeking && !previewOpen;
+  const showPreview = hasMemo && (previewOpen || isPeek);
 
   return (
     <div
@@ -36,17 +48,41 @@ export function PeerOnIso({
         top: 'var(--iso-origin-y, 32%)',
         transform: `translate3d(calc(-50% + ${x}px), calc(-82% + ${y}px), 0)`,
         transition: `transform ${dur}ms linear`,
-        zIndex: previewOpen ? 240 : 50 + Math.round(peer.y),
+        zIndex: showPreview ? 240 : 50 + Math.round(peer.y),
       }}
     >
       <div className="peer-stage-inner">
-        {previewOpen && (
+        {showPreview && (
           <div
-            className="memo-note-preview"
+            className={`memo-note-preview${isPeek ? ' is-peek' : ''}`}
+            style={isPeek ? { ['--peek-ms' as string]: `${peekMs}ms` } : undefined}
             onClick={(e) => e.stopPropagation()}
-            onPointerDown={(e) => e.stopPropagation()}
+            onPointerDown={(e) => {
+              e.stopPropagation();
+              // Any touch on a peek (tap, start of a scroll) pins it so it
+              // doesn't fade out mid-read.
+              if (isPeek) onTogglePreview();
+            }}
+            onWheel={() => {
+              if (isPeek) onTogglePreview();
+            }}
           >
-            <div className="memo-note-preview-label">on my mind</div>
+            <div className="memo-note-preview-head">
+              <div className="memo-note-preview-label">on my mind</div>
+              <button
+                type="button"
+                className="memo-note-close"
+                aria-label="close"
+                // Don't let the close tap count as a touch that pins a peek.
+                onPointerDown={(e) => e.stopPropagation()}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onClosePreview();
+                }}
+              >
+                <Icon name="x" size={10} />
+              </button>
+            </div>
             <div className="memo-note-preview-rendered memo-rendered">
               <ReactMarkdown remarkPlugins={[remarkGfm, remarkBreaks]}>{peer.memo}</ReactMarkdown>
             </div>

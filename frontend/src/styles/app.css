@@ -856,6 +856,7 @@ input, textarea, select { font-size: 16px; }
   to   { opacity: 1; transform: scale(1); }
 }
 
+
 /* ───────── On My Mind sticky note (in-scene) ───────── */
 /* The icon sits next to the name on each peer's tag. Because peer-stage
    has pointer-events: none, we re-enable it just on the icon + popover.
@@ -898,7 +899,8 @@ input, textarea, select { font-size: 16px; }
   z-index: 245;
   pointer-events: auto;
   width: 200px;
-  background: var(--surface);
+  /* Translucent so the scene behind stays visible; no blur on purpose. */
+  background: color-mix(in srgb, var(--surface) 78%, transparent);
   color: var(--fg);
   border: var(--border-w) solid var(--fg);
   box-shadow: var(--shadow-hard);
@@ -916,15 +918,59 @@ input, textarea, select { font-size: 16px; }
   letter-spacing: var(--tracking);
   color: var(--muted);
 }
+/* Opaque while being read: mouse hover / keyboard focus, and on touch
+   screens (no hover) once it's been touched — i.e. pinned, not peeking. */
+.memo-note-preview:hover,
+.memo-note-preview:focus-within {
+  background: var(--surface);
+}
+@media (hover: none) {
+  .memo-note-preview:not(.is-peek) { background: var(--surface); }
+}
+.memo-note-preview-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+.memo-note-close {
+  appearance: none;
+  cursor: pointer;
+  width: 18px;
+  height: 18px;
+  margin: -4px -6px -4px 0;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: 0;
+  color: var(--muted);
+}
+.memo-note-close:hover { color: var(--fg); }
 .memo-note-preview-rendered {
   font-size: 12px;
   line-height: 1.4;
-  max-height: 7.5em;
-  overflow: hidden;
   position: relative;
-  /* Fade the bottom so a cut-off long memo doesn't look truncated abruptly. */
-  mask-image: linear-gradient(180deg, #000 70%, transparent 100%);
-  -webkit-mask-image: linear-gradient(180deg, #000 70%, transparent 100%);
+  /* Scroll the whole memo in place (peek and pinned alike). Being its own
+     scroll container with pan-y lets touch scrolling through despite the
+     scene's touch-action: none; pointerdown is already stopped so it won't pan. */
+  /* At most four lines visible; the rest scrolls. */
+  max-height: calc(1.4em * 4);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  touch-action: pan-y;
+}
+/* Peek: same box, auto-opened; fades in → holds → fades out. Any touch pins it. */
+.memo-note-preview.is-peek {
+  cursor: pointer;
+  animation: memo-peek-life var(--peek-ms, 8000ms) ease-out both;
+}
+@keyframes memo-peek-life {
+  0%   { opacity: 0; translate: 0 4px; }
+  7%   { opacity: 1; translate: 0 0; }
+  90%  { opacity: 1; translate: 0 0; }
+  100% { opacity: 0; translate: 0 -4px; }
 }
 /* Tighten the inherited .memo-rendered spacing inside the small popover. */
 .memo-note-preview-rendered p { margin: 0 0 4px; font-size: 12px; }
@@ -1320,7 +1366,6 @@ input, textarea, select { font-size: 16px; }
   line-height: 1;
 }
 .dock-glyph.is-active { background: var(--fg); color: var(--bg); }
-.dock-glyph.is-off { color: var(--muted); }
 .dock-glyph-char { display: block; font-size: 16px; line-height: 1; }
 
 /* Slim now-playing ticker — only renders while music plays. Keeps
@@ -2745,6 +2790,13 @@ input, textarea, select { font-size: 16px; }
   background: var(--surface-2);
   border: var(--border-w) solid var(--scene-line);
   overflow-y: auto;
+}
+.memo-hint {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  color: var(--muted);
+  text-transform: var(--upper);
+  letter-spacing: var(--tracking);
 }
 .memo-editor-actions { margin-top: 2px; }
 .memo-editor-actions .text-link { margin-left: auto; }

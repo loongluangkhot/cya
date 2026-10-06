@@ -67,6 +67,7 @@ function Body({
           )}
         </div>
       )}
+      <div className="memo-hint">your note pops up above you now and then</div>
       <div className="memo-actions memo-editor-actions">
         <span className="memo-counter">{draft.length}/{MEMO_MAX}</span>
         <button type="button" className="text-link" onClick={onCancel}>

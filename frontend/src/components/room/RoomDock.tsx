@@ -19,6 +19,8 @@ interface RoomDockProps {
   onOpenMusic: () => void;
   onOpenAmbience: () => void;
   onOpenMinds: () => void;
+  /** Memo peeks in the scene — the Minds sheet's on/off. */
+  thoughtsOn: boolean;
   onOpenChat: () => void;
   onTogglePlay: () => void;
   mugshotOptIn: boolean;
@@ -48,9 +50,9 @@ interface MugshotGlyphProps {
   onOpen: () => void;
 }
 
-/** Single glyph button. When opted in: a 1Hz-ticking countdown ring
- *  around a center dot. When opted out: a static hollow ring so it's
- *  visibly "off" but still tappable as the path back into the sheet. */
+/** Single glyph button — same ring-and-dot icon on or off, filled when
+ *  opted in like the other dock toggles. When opted in, a 1Hz-ticking
+ *  arc around the ring counts down to the next prompt. */
 function MugshotGlyph({ optIn, nextAt, intervalS, onOpen }: MugshotGlyphProps) {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
@@ -64,43 +66,14 @@ function MugshotGlyph({ optIn, nextAt, intervalS, onOpen }: MugshotGlyphProps) {
   const r = 7;
   const c = 2 * Math.PI * r;
 
-  if (!optIn) {
-    return (
-      <button
-        type="button"
-        className="dock-glyph is-off"
-        onClick={onOpen}
-        aria-label="mugshot · off"
-        title="mugshot · off — tap to join the wall"
-      >
-        <svg
-          width={size}
-          height={size}
-          viewBox="0 0 18 18"
-          aria-hidden="true"
-          style={{ display: 'block' }}
-        >
-          <circle
-            cx="9"
-            cy="9"
-            r={r}
-            fill="none"
-            stroke="currentColor"
-            strokeOpacity="0.45"
-            strokeWidth="1.5"
-            strokeDasharray="2 2"
-          />
-        </svg>
-      </button>
-    );
-  }
-
   const totalMs = Math.max(1, intervalS * 1000);
   const remainingMs = Math.max(0, nextAt - now);
-  const elapsed = Math.max(0, Math.min(1, 1 - remainingMs / totalMs));
+  // Opted out: no countdown, so the arc stays empty.
+  const elapsed = optIn ? Math.max(0, Math.min(1, 1 - remainingMs / totalMs)) : 0;
   const remainingMin = Math.ceil(remainingMs / 60_000);
-  const title =
-    remainingMs <= 0
+  const title = !optIn
+    ? 'mugshot · off'
+    : remainingMs <= 0
       ? 'mugshot · prompt due'
       : remainingMs < 60_000
         ? `mugshot · next in ${Math.ceil(remainingMs / 1000)}s`
@@ -109,7 +82,7 @@ function MugshotGlyph({ optIn, nextAt, intervalS, onOpen }: MugshotGlyphProps) {
   return (
     <button
       type="button"
-      className="dock-glyph is-active"
+      className={`dock-glyph${optIn ? ' is-active' : ''}`}
       onClick={onOpen}
       aria-label={title}
       title={title}
@@ -161,6 +134,7 @@ export function RoomDock({
   onOpenMusic,
   onOpenAmbience,
   onOpenMinds,
+  thoughtsOn,
   onOpenChat,
   onTogglePlay,
   mugshotOptIn,
@@ -208,10 +182,10 @@ export function RoomDock({
         </button>
         <button
           type="button"
-          className="dock-glyph"
+          className={`dock-glyph${thoughtsOn ? ' is-active' : ''}`}
           onClick={onOpenMinds}
-          aria-label="minds"
-          title="minds"
+          aria-label={`minds · ${thoughtsOn ? 'on' : 'off'}`}
+          title={`minds · ${thoughtsOn ? 'on' : 'off'}`}
         >
           <span className="dock-glyph-char">✺</span>
         </button>
@@ -238,7 +212,7 @@ export function RoomDock({
         />
         <button
           type="button"
-          className={`dock-glyph${marqueeOptIn && marqueeStripOn ? ' is-active' : ''}${!marqueeOptIn ? ' is-off' : ''}`}
+          className={`dock-glyph${marqueeOptIn ? ' is-active' : ''}`}
           onClick={onOpenMarquee}
           aria-label={marqueeOptIn ? 'marquee' : 'marquee · off'}
           title={

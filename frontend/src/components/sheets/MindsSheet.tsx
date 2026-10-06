@@ -12,11 +12,35 @@ interface MindsSheetProps {
   peers: User[];
   meId: string | null;
   onEditMine: () => void;
+  /** Local setting: show memo headlines as thought bubbles in the scene. */
+  thoughtsOn: boolean;
+  onToggleThoughts: () => void;
 }
 
-export function MindsSheet({ open, onClose, peers, meId, onEditMine }: MindsSheetProps) {
+export function MindsSheet({
+  open,
+  onClose,
+  peers,
+  meId,
+  onEditMine,
+  thoughtsOn,
+  onToggleThoughts,
+}: MindsSheetProps) {
+  const headerAction = (
+    <button
+      type="button"
+      className={`sheet-toggle${thoughtsOn ? ' on' : ''}`}
+      onClick={onToggleThoughts}
+      aria-pressed={thoughtsOn}
+      aria-label={thoughtsOn ? 'mute thought bubbles in the room' : 'show thought bubbles in the room'}
+      title="thought bubbles in the room"
+    >
+      {thoughtsOn ? 'on' : 'off'}
+    </button>
+  );
+
   return (
-    <Sheet open={open} onClose={onClose} title="minds" tall>
+    <Sheet open={open} onClose={onClose} title="minds" tall headerAction={headerAction}>
       <MindsBoard peers={peers} meId={meId} onEditMine={onEditMine} />
     </Sheet>
   );
